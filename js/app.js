@@ -328,7 +328,15 @@ async function guardarNombreSocio() {
 
     mostrarToast(`Nombre actualizado a "${nombre}".`, 'exito');
     cerrarModal('modalEditarNombre');
-    cargarAjustes(); // refrescar la vista de ajustes
+
+    // Refrescar lista de gastos para mostrar el nuevo nombre
+    if (Estado.gastos.length > 0) {
+      renderizarListaGastos(Estado.gastos);
+    }
+    // Refrescar panel de deudas
+    await mostrarPanelDeudas();
+    // Refrescar ajustes
+    cargarAjustes();
   } catch (err) {
     console.error(err);
     mostrarToast('Error al guardar el nombre.', 'error');
