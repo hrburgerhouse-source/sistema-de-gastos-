@@ -317,7 +317,8 @@ async function guardarNombreSocio() {
   try {
     const update = {};
     update[Estado.nombreEditandoRol] = nombre;
-    await db.collection('config').doc('nombres').update(update);
+    // set+merge funciona aunque el documento no exista aún
+    await db.collection('config').doc('nombres').set(update, { merge: true });
     Estado.nombres[Estado.nombreEditandoRol] = nombre;
 
     // Actualizar el badge si es el usuario actual
