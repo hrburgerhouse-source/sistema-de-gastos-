@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="es" data-tema="claro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="description" content="Control de gastos — HR Burger House">
+  <meta name="theme-color" content="#FF6B35">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Gastos HR">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="logo.jpeg">
+  <title>Control de Gastos — HR Burger House</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=20260703">
+  <!-- Aplicar tema antes del render para evitar parpadeo -->
+  <script src="js/theme.js?v=20260703"></script>
+</head>
+<body>
+
+  <!-- ============================================================
+       SPINNER DE CARGA
+       ============================================================ -->
+  <div id="spinnerOverlay" class="spinner-overlay hidden" role="status" aria-label="Cargando…">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- ============================================================
+       CONTENEDOR DE TOASTS
+       ============================================================ -->
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- ============================================================
+       PANTALLA DE PIN
+       ============================================================ -->
+  <div id="pantallaPin" class="pantalla-pin">
+    <div class="pin-card">
+      <img src="logo.jpeg" alt="Logo HR Burger House" class="pin-logo">
+      <h1 class="pin-titulo">HR Burger House</h1>
+      <p class="pin-subtitulo">Control de Gastos</p>
+
+      <div class="pin-dots" role="presentation">
+        <span class="pin-dot" id="dot0"></span>
+        <span class="pin-dot" id="dot1"></span>
+        <span class="pin-dot" id="dot2"></span>
+        <span class="pin-dot" id="dot3"></span>
+      </div>
+
+      <p class="pin-error-msg hidden" id="pinErrorMsg" role="alert">PIN incorrecto. Inténtalo de nuevo.</p>
+
+      <div class="pin-teclado" role="group" aria-label="Teclado numérico">
+        <button class="pin-btn" data-num="1" aria-label="1">1</button>
+        <button class="pin-btn" data-num="2" aria-label="2">2</button>
+        <button class="pin-btn" data-num="3" aria-label="3">3</button>
+        <button class="pin-btn" data-num="4" aria-label="4">4</button>
+        <button class="pin-btn" data-num="5" aria-label="5">5</button>
+        <button class="pin-btn" data-num="6" aria-label="6">6</button>
+        <button class="pin-btn" data-num="7" aria-label="7">7</button>
+        <button class="pin-btn" data-num="8" aria-label="8">8</button>
+        <button class="pin-btn" data-num="9" aria-label="9">9</button>
+        <div class="pin-btn-vacio"></div>
+        <button class="pin-btn" data-num="0" aria-label="0">0</button>
+        <button class="pin-btn pin-btn-borrar" id="pinBorrar" aria-label="Borrar">⌫</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       APLICACIÓN PRINCIPAL
+       ============================================================ -->
+  <div id="appPrincipal" class="hidden">
+
+    <!-- HEADER -->
+    <header class="header">
+      <div class="header-izquierda">
+        <img src="logo.jpeg" alt="Logo" class="header-logo">
+        <div>
+          <div class="header-titulo">HR Burger House</div>
+          <div class="header-subtitulo">Control de Gastos</div>
+        </div>
+      </div>
+      <div class="header-derecha">
+        <span id="usuarioActual" class="usuario-badge"></span>
+        <button class="btn-icono" onclick="toggleTema()" id="btnTema" title="Cambiar tema">🌙</button>
+        <button class="btn-icono" onclick="cerrarSesion()" title="Cerrar sesión">🔒</button>
+      </div>
+    </header>
+
+    <!-- NAVEGACIÓN POR PESTAÑAS -->
+    <nav class="nav-tabs" id="navTabs" role="tablist">
+      <button class="nav-tab activo" data-tab="gastos"   onclick="cambiarTab('gastos')"   role="tab" aria-selected="true">💸 Gastos</button>
+      <button class="nav-tab"        data-tab="resumen"  onclick="cambiarTab('resumen')"  role="tab" aria-selected="false">📊 Resumen</button>
+      <button class="nav-tab"        data-tab="graficas" onclick="cambiarTab('graficas')" role="tab" aria-selected="false">📈 Gráficas</button>
+      <button class="nav-tab tab-admin hidden" data-tab="ajustes"  onclick="cambiarTab('ajustes')"  role="tab" aria-selected="false">⚙️ Ajustes</button>
+    </nav>
+
+    <!-- CONTENIDO -->
+    <main class="contenido-principal">
+
+      <!-- ======================================================
+           TAB: GASTOS
+           ====================================================== -->
+      <div id="tabGastos" class="tab-contenido activo" role="tabpanel">
+
+        <!-- Filtros -->
+        <div class="filtros-panel">
+          <div class="filtros-grid">
+            <div class="campo">
+              <label for="filtroDesde">Desde</label>
+              <input type="date" id="filtroDesde">
+            </div>
+            <div class="campo">
+              <label for="filtroHasta">Hasta</label>
+              <input type="date" id="filtroHasta">
+            </div>
+            <div class="campo">
+              <label for="filtroCategoria">Categoría</label>
+              <select id="filtroCategoria">
+                <option value="">Todas</option>
+              </select>
+            </div>
+            <div class="campo">
+              <label for="filtroRegistradoPor">Registrado por</label>
+              <select id="filtroRegistradoPor">
+                <option value="">Todos</option>
+                <option value="socio1">Socio 1</option>
+                <option value="socio2">Socio 2</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+          </div>
+          <div class="filtros-acciones">
+            <button class="btn btn-secundario" onclick="limpiarFiltros()">Limpiar</button>
+            <button class="btn btn-primario"   onclick="aplicarFiltros()">Filtrar</button>
+            <button class="btn btn-exportar"   onclick="exportarPDF()"   title="Exportar a PDF">📄 PDF</button>
+            <button class="btn btn-exportar"   onclick="exportarExcel()" title="Exportar a Excel">📊 Excel</button>
+          </div>
+        </div>
+
+        <!-- Lista de gastos -->
+        <div id="listaGastos"></div>
+
+        <!-- FAB -->
+        <button class="fab" onclick="abrirModalNuevoGasto()" title="Registrar nuevo gasto" aria-label="Nuevo gasto">+</button>
+      </div>
+
+      <!-- ======================================================
+           TAB: RESUMEN
+           ====================================================== -->
+      <div id="tabResumen" class="tab-contenido hidden" role="tabpanel">
+        <div class="periodo-selector">
+          <select id="resumenMes" aria-label="Mes"></select>
+          <select id="resumenAnio" aria-label="Año"></select>
+          <button class="btn btn-primario" onclick="cargarResumen()">Ver resumen</button>
+        </div>
+
+        <div class="stats-grid" id="statsGrid">
+          <!-- Se genera dinámicamente -->
+        </div>
+
+        <div class="card">
+          <h3>🏷️ Desglose por categoría</h3>
+          <div id="tablaCategoriasResumen"></div>
+        </div>
+
+        <div class="export-botones">
+          <button class="btn btn-exportar" onclick="exportarPDFResumen()">📄 Exportar PDF</button>
+          <button class="btn btn-exportar" onclick="exportarExcelResumen()">📊 Exportar Excel</button>
+        </div>
+      </div>
+
+      <!-- ======================================================
+           TAB: GRÁFICAS
+           ====================================================== -->
+      <div id="tabGraficas" class="tab-contenido hidden" role="tabpanel">
+        <div class="periodo-selector">
+          <select id="graficaMes" aria-label="Mes"></select>
+          <select id="graficaAnio" aria-label="Año"></select>
+          <button class="btn btn-primario" onclick="cargarGraficas()">Ver gráficas</button>
+        </div>
+
+        <div class="graficas-grid">
+          <div class="card">
+            <h3>🍩 Distribución por categoría</h3>
+            <div class="grafica-wrapper">
+              <canvas id="graficaDona"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <h3>📊 Gastos últimos 6 meses</h3>
+            <div class="grafica-wrapper">
+              <canvas id="graficaBarras"></canvas>
+            </div>
+          </div>
+          <div class="card grafica-linea">
+            <h3>📈 Gasto acumulado del mes</h3>
+            <div class="grafica-wrapper">
+              <canvas id="graficaLinea"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ======================================================
+           TAB: AJUSTES (solo admin)
+           ====================================================== -->
+      <div id="tabAjustes" class="tab-contenido hidden" role="tabpanel">
+
+        <!-- Cambiar PINs -->
+        <div class="card">
+          <h3>🔑 Cambiar PINs</h3>
+          <div class="pin-lista">
+            <div class="pin-fila">
+              <div class="pin-fila-info">
+                <span class="pin-fila-rol">Socio 1</span>
+                <span class="pin-fila-pin" id="pinMostradoSocio1">••••</span>
+              </div>
+              <button class="btn btn-secundario" onclick="abrirCambiarPin('socio1')">✏️ Cambiar</button>
+            </div>
+            <div class="pin-fila">
+              <div class="pin-fila-info">
+                <span class="pin-fila-rol">Socio 2</span>
+                <span class="pin-fila-pin" id="pinMostradoSocio2">••••</span>
+              </div>
+              <button class="btn btn-secundario" onclick="abrirCambiarPin('socio2')">✏️ Cambiar</button>
+            </div>
+            <div class="pin-fila">
+              <div class="pin-fila-info">
+                <span class="pin-fila-rol">Administrador</span>
+                <span class="pin-fila-pin" id="pinMostradoAdmin">••••</span>
+              </div>
+              <button class="btn btn-secundario" onclick="abrirCambiarPin('admin')">✏️ Cambiar</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gestionar categorías -->
+        <div class="card">
+          <h3>🏷️ Categorías de gastos</h3>
+          <div id="listaCategorias" class="categoria-lista"></div>
+          <div style="margin-top:14px;">
+            <button class="btn btn-primario" onclick="abrirModalCategoria()">+ Nueva categoría</button>
+          </div>
+        </div>
+
+        <!-- Exportación completa -->
+        <div class="card">
+          <h3>📦 Exportación completa de datos</h3>
+          <p style="font-size:0.88rem;color:var(--texto-muted);margin-bottom:14px;">
+            Descarga todos los gastos registrados en el sistema, sin filtros de fecha.
+          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn btn-exportar" onclick="exportarTodosPDF()">📄 PDF completo</button>
+            <button class="btn btn-exportar" onclick="exportarTodosExcel()">📊 Excel completo</button>
+          </div>
+        </div>
+
+      </div><!-- /tabAjustes -->
+
+    </main>
+  </div><!-- /appPrincipal -->
+
+  <!-- ============================================================
+       MODAL: NUEVO / EDITAR GASTO
+       ============================================================ -->
+  <div id="modalGasto" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalGastoTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="modalGastoTitulo">Nuevo Gasto</h2>
+        <button class="modal-cerrar" onclick="cerrarModalGasto()" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="formGasto" onsubmit="return false" novalidate>
+          <div class="form-grid">
+            <div class="campo">
+              <label for="gastoFecha">Fecha</label>
+              <input type="date" id="gastoFecha" required>
+            </div>
+            <div class="campo">
+              <label for="gastoMetodoPago">Método de pago</label>
+              <select id="gastoMetodoPago" required>
+                <option value="">Seleccionar…</option>
+                <option value="Efectivo">💵 Efectivo</option>
+                <option value="Transferencia">🏦 Transferencia</option>
+                <option value="Tarjeta">💳 Tarjeta</option>
+              </select>
+            </div>
+            <div class="campo campo-completo">
+              <label for="gastoCategoria">Categoría</label>
+              <select id="gastoCategoria" required>
+                <option value="">Seleccionar…</option>
+              </select>
+            </div>
+            <div class="campo campo-completo">
+              <label for="gastoDescripcion">Descripción</label>
+              <input type="text" id="gastoDescripcion" placeholder="Ej: Compra de carne — Proveedor X" required>
+            </div>
+            <div class="campo campo-completo campo-monto">
+              <label for="gastoMonto">Monto (USD)</label>
+              <input type="number" id="gastoMonto" placeholder="0.00" min="0.01" step="0.01" inputmode="decimal" required>
+            </div>
+            <div class="campo campo-completo">
+              <label for="gastoNotas">Notas (opcional)</label>
+              <textarea id="gastoNotas" placeholder="Información adicional…" rows="2"></textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModalGasto()">Cancelar</button>
+        <button class="btn btn-primario"   onclick="guardarGasto()">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: CONFIRMAR ELIMINACIÓN
+       ============================================================ -->
+  <div id="modalConfirmar" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalConfirmarTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="modalConfirmarTitulo">Confirmar eliminación</h2>
+        <button class="modal-cerrar" onclick="cerrarModal('modalConfirmar')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-confirmacion-contenido">
+          <div class="modal-confirmacion-icono">🗑️</div>
+          <p class="modal-confirmacion-mensaje" id="confirmarMensaje"></p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModal('modalConfirmar')">Cancelar</button>
+        <button class="btn btn-peligro"    onclick="ejecutarEliminar()">Sí, eliminar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: CAMBIAR PIN
+       ============================================================ -->
+  <div id="modalCambiarPin" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="cambiarPinTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="cambiarPinTitulo">Cambiar PIN</h2>
+        <button class="modal-cerrar" onclick="cerrarModal('modalCambiarPin')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="campo campo-completo">
+            <label for="pinActualAdmin">PIN actual del administrador</label>
+            <input type="password" id="pinActualAdmin" maxlength="4" inputmode="numeric" placeholder="••••" autocomplete="off">
+          </div>
+          <div class="campo campo-completo">
+            <label for="pinNuevo">PIN nuevo (4 dígitos)</label>
+            <input type="password" id="pinNuevo" maxlength="4" inputmode="numeric" placeholder="••••" autocomplete="new-password">
+          </div>
+          <div class="campo campo-completo">
+            <label for="pinNuevoConfirm">Confirmar PIN nuevo</label>
+            <input type="password" id="pinNuevoConfirm" maxlength="4" inputmode="numeric" placeholder="••••" autocomplete="new-password">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModal('modalCambiarPin')">Cancelar</button>
+        <button class="btn btn-primario"   onclick="guardarNuevoPin()">Guardar PIN</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: CATEGORÍA
+       ============================================================ -->
+  <div id="modalCategoria" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalCategoriaTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="modalCategoriaTitulo">Nueva Categoría</h2>
+        <button class="modal-cerrar" onclick="cerrarModal('modalCategoria')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="campo">
+          <label for="categoriaNombre">Nombre de la categoría</label>
+          <input type="text" id="categoriaNombre" placeholder="Ej: Publicidad" maxlength="60">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModal('modalCategoria')">Cancelar</button>
+        <button class="btn btn-primario"   onclick="guardarCategoria()">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SDKs Y LIBRERÍAS
+       ============================================================ -->
+  <!-- Firebase compat SDK v9.23.0 -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <!-- Chart.js 4.x -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- jsPDF + AutoTable -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+  <!-- SheetJS (xlsx) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- App scripts -->
+  <script src="js/config.js?v=20260703"></script>
+  <script src="js/app.js?v=20260703"></script>
+
+</body>
+</html>
