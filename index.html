@@ -229,31 +229,40 @@
           <div class="pin-lista">
             <div class="pin-fila">
               <div class="pin-fila-info">
-                <span class="pin-fila-rol">Socio 1</span>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span class="pin-fila-rol" id="nombreMostradoSocio1">Socio 1</span>
+                  <button class="btn-accion btn-editar" onclick="abrirEditarNombre('socio1')" title="Editar nombre" style="width:24px;height:24px;font-size:.7rem;flex-shrink:0">✏️</button>
+                </div>
                 <span class="pin-fila-pin" id="pinMostradoSocio1">••••</span>
               </div>
               <div class="pin-fila-botones">
-                <button class="btn btn-secundario" onclick="abrirCambiarPin('socio1')">✏️ Cambiar</button>
+                <button class="btn btn-secundario" onclick="abrirCambiarPin('socio1')">🔑 PIN</button>
                 <button class="btn btn-secundario" onclick="abrirResetPin('socio1')" style="color:var(--alerta);border-color:var(--alerta)">↺ Reset</button>
               </div>
             </div>
             <div class="pin-fila">
               <div class="pin-fila-info">
-                <span class="pin-fila-rol">Socio 2</span>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span class="pin-fila-rol" id="nombreMostradoSocio2">Socio 2</span>
+                  <button class="btn-accion btn-editar" onclick="abrirEditarNombre('socio2')" title="Editar nombre" style="width:24px;height:24px;font-size:.7rem;flex-shrink:0">✏️</button>
+                </div>
                 <span class="pin-fila-pin" id="pinMostradoSocio2">••••</span>
               </div>
               <div class="pin-fila-botones">
-                <button class="btn btn-secundario" onclick="abrirCambiarPin('socio2')">✏️ Cambiar</button>
+                <button class="btn btn-secundario" onclick="abrirCambiarPin('socio2')">🔑 PIN</button>
                 <button class="btn btn-secundario" onclick="abrirResetPin('socio2')" style="color:var(--alerta);border-color:var(--alerta)">↺ Reset</button>
               </div>
             </div>
             <div class="pin-fila">
               <div class="pin-fila-info">
-                <span class="pin-fila-rol">Administrador</span>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span class="pin-fila-rol" id="nombreMostradoAdmin">Administrador</span>
+                  <button class="btn-accion btn-editar" onclick="abrirEditarNombre('admin')" title="Editar nombre" style="width:24px;height:24px;font-size:.7rem;flex-shrink:0">✏️</button>
+                </div>
                 <span class="pin-fila-pin" id="pinMostradoAdmin">••••</span>
               </div>
               <div class="pin-fila-botones">
-                <button class="btn btn-secundario" onclick="abrirCambiarPin('admin')">✏️ Cambiar</button>
+                <button class="btn btn-secundario" onclick="abrirCambiarPin('admin')">🔑 PIN</button>
                 <button class="btn btn-secundario" onclick="abrirResetPin('admin')" style="color:var(--alerta);border-color:var(--alerta)">↺ Reset</button>
               </div>
             </div>
@@ -424,6 +433,31 @@
       <div class="modal-footer">
         <button class="btn btn-secundario" onclick="cerrarModal('modalCategoria')">Cancelar</button>
         <button class="btn btn-primario"   onclick="guardarCategoria()">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: EDITAR NOMBRE DE SOCIO
+       ============================================================ -->
+  <div id="modalEditarNombre" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="editarNombreTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="editarNombreTitulo">Editar nombre</h2>
+        <button class="modal-cerrar" onclick="cerrarModal('modalEditarNombre')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:.85rem;color:var(--texto-muted);margin-bottom:14px">
+          Este nombre aparecerá en los gastos, reportes y en el badge del header al iniciar sesión.
+        </p>
+        <div class="campo">
+          <label for="nuevoNombreSocio">Nombre</label>
+          <input type="text" id="nuevoNombreSocio" maxlength="30" placeholder="Ej: Juan Carlos">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModal('modalEditarNombre')">Cancelar</button>
+        <button class="btn btn-primario"   onclick="guardarNombreSocio()">Guardar nombre</button>
       </div>
     </div>
   </div>

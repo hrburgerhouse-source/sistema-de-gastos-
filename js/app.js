@@ -22,6 +22,8 @@ const Estado = {
   pinCambiandoRol: null,
   pinResetandoRol: null,
   pendienteAPagarId: null,
+  nombreEditandoRol: null,
+  nombres: {},
   gastosResumenActual: [],  // gastos del período en la tab Resumen
   pendientes:   [],         // compras pendientes de pago
   graficas: { dona: null, barras: null, linea: null },
@@ -60,6 +62,8 @@ function ultimoDiaMes(mes, anio) {
 }
 
 function nombreRol(rol) {
+  // Usa el nombre personalizado si ya se cargó, si no usa el default
+  if (Estado.nombres && Estado.nombres[rol]) return Estado.nombres[rol];
   return { socio1: 'Socio 1', socio2: 'Socio 2', admin: 'Administrador' }[rol] || rol;
 }
 
@@ -276,6 +280,62 @@ async function cargarPINs() {
     Estado.pins = { ...PINS_DEFAULT };
   }
 }
+
+// ================================================================
+// FIRESTORE: NOMBRES DE SOCIOS
+// ================================================================
+
+async function cargarNombres() {
+  try {
+    const doc = await db.collection('config').doc('nombres').get();
+    if (doc.exists) {
+      Estado.nombres = { ...NOMBRES_DEFAULT, ...doc.data() };
+    } else {
+      await db.collection('config').doc('nombres').set(NOMBRES_DEFAULT);
+      Estado.nombres = { ...NOMBRES_DEFAULT };
+    }
+  } catch (err) {
+    console.warn('Error cargando nombres, usando valores por defecto:', err);
+    Estado.nombres = { ...NOMBRES_DEFAULT };
+  }
+}
+
+function abrirEditarNombre(rol) {
+  Estado.nombreEditandoRol = rol;
+  document.getElementById('editarNombreTitulo').textContent =
+    `Editar nombre — ${nombreRol(rol)}`;
+  document.getElementById('nuevoNombreSocio').value = Estado.nombres[rol] || '';
+  abrirModal('modalEditarNombre');
+}
+window.abrirEditarNombre = abrirEditarNombre;
+
+async function guardarNombreSocio() {
+  const nombre = document.getElementById('nuevoNombreSocio').value.trim();
+  if (!nombre) return mostrarToast('Ingresa un nombre.', 'advertencia');
+
+  mostrarSpinner();
+  try {
+    const update = {};
+    update[Estado.nombreEditandoRol] = nombre;
+    await db.collection('config').doc('nombres').update(update);
+    Estado.nombres[Estado.nombreEditandoRol] = nombre;
+
+    // Actualizar el badge si es el usuario actual
+    if (Estado.usuario?.rol === Estado.nombreEditandoRol) {
+      Estado.usuario.nombre = nombre;
+      document.getElementById('usuarioActual').textContent = nombre;
+    }
+
+    mostrarToast(`Nombre actualizado a "${nombre}".`, 'exito');
+    cerrarModal('modalEditarNombre');
+    cargarAjustes(); // refrescar la vista de ajustes
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al guardar el nombre.', 'error');
+  }
+  ocultarSpinner();
+}
+window.guardarNombreSocio = guardarNombreSocio;
 
 // ================================================================
 // FIRESTORE: CATEGORÍAS
@@ -891,6 +951,14 @@ async function cargarAjustes() {
   if (el1) el1.textContent = mask(socio1);
   if (el2) el2.textContent = mask(socio2);
   if (el3) el3.textContent = mask(admin);
+
+  // Mostrar nombres personalizados
+  const n1 = document.getElementById('nombreMostradoSocio1');
+  const n2 = document.getElementById('nombreMostradoSocio2');
+  const n3 = document.getElementById('nombreMostradoAdmin');
+  if (n1) n1.textContent = Estado.nombres.socio1 || 'Socio 1';
+  if (n2) n2.textContent = Estado.nombres.socio2 || 'Socio 2';
+  if (n3) n3.textContent = Estado.nombres.admin  || 'Administrador';
 
   // Cargar y renderizar pendientes
   await cargarPendientes();
@@ -1673,6 +1741,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   mostrarSpinner();
 
   await cargarPINs();
+  await cargarNombres();
   inicializarSelectoresFecha();
   inicializarPantallaPIN();
 

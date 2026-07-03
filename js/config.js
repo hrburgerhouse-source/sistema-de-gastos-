@@ -26,6 +26,17 @@ const PINS_DEFAULT = {
 };
 
 // ================================================================
+// NOMBRES POR DEFECTO DE LOS SOCIOS
+// Se sobrescriben con los valores guardados en Firestore
+// (colección "config", documento "nombres")
+// ================================================================
+const NOMBRES_DEFAULT = {
+  socio1: 'Socio 1',
+  socio2: 'Socio 2',
+  admin:  'Administrador'
+};
+
+// ================================================================
 // CATEGORÍAS POR DEFECTO
 // Se crean en Firestore si la colección "categorias" está vacía
 // ================================================================
