@@ -15,9 +15,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260703c">
+  <link rel="stylesheet" href="css/style.css?v=20260703d">
   <!-- Aplicar tema antes del render para evitar parpadeo -->
-  <script src="js/theme.js?v=20260703c"></script>
+  <script src="js/theme.js?v=20260703d"></script>
 </head>
 <body>
 
@@ -110,24 +110,51 @@
 
         <!-- Filtros -->
         <div class="filtros-panel">
+          <!-- Búsqueda de texto: filtra en tiempo real sin consultar Firestore -->
+          <div class="filtros-busqueda">
+            <div class="campo">
+              <label for="filtroTexto">🔍 Buscar</label>
+              <input type="text" id="filtroTexto" placeholder="Descripción, categoría o notas…" oninput="aplicarFiltrosClienteSide()" autocomplete="off">
+            </div>
+          </div>
           <div class="filtros-grid">
             <div class="campo">
+              <label for="filtroPeriodoRapido">Período</label>
+              <select id="filtroPeriodoRapido" onchange="aplicarPeriodoRapido()">
+                <option value="mes-actual">Este mes</option>
+                <option value="mes-anterior">Mes anterior</option>
+                <option value="ultimos-3m">Últimos 3 meses</option>
+                <option value="anio-actual">Este año</option>
+                <option value="todo">Todo el historial</option>
+                <option value="personalizado">Personalizado…</option>
+              </select>
+            </div>
+            <div class="campo">
               <label for="filtroDesde">Desde</label>
-              <input type="date" id="filtroDesde">
+              <input type="date" id="filtroDesde" onchange="document.getElementById('filtroPeriodoRapido').value='personalizado'">
             </div>
             <div class="campo">
               <label for="filtroHasta">Hasta</label>
-              <input type="date" id="filtroHasta">
+              <input type="date" id="filtroHasta" onchange="document.getElementById('filtroPeriodoRapido').value='personalizado'">
             </div>
             <div class="campo">
               <label for="filtroCategoria">Categoría</label>
-              <select id="filtroCategoria">
+              <select id="filtroCategoria" onchange="aplicarFiltrosClienteSide()">
                 <option value="">Todas</option>
               </select>
             </div>
             <div class="campo">
+              <label for="filtroMetodoPago">Método de pago</label>
+              <select id="filtroMetodoPago" onchange="aplicarFiltrosClienteSide()">
+                <option value="">Todos</option>
+                <option value="Efectivo">💵 Efectivo</option>
+                <option value="Transferencia">🏦 Transferencia</option>
+                <option value="Tarjeta">💳 Tarjeta</option>
+              </select>
+            </div>
+            <div class="campo">
               <label for="filtroRegistradoPor">Registrado por</label>
-              <select id="filtroRegistradoPor">
+              <select id="filtroRegistradoPor" onchange="aplicarFiltrosClienteSide()">
                 <option value="">Todos</option>
                 <option value="socio1">Socio 1</option>
                 <option value="socio2">Socio 2</option>
@@ -137,7 +164,7 @@
           </div>
           <div class="filtros-acciones">
             <button class="btn btn-secundario" onclick="limpiarFiltros()">Limpiar</button>
-            <button class="btn btn-primario"   onclick="aplicarFiltros()">Filtrar</button>
+            <button class="btn btn-primario"   onclick="aplicarFiltros()">🔄 Actualizar</button>
             <button class="btn btn-exportar"   onclick="exportarPDF()"   title="Exportar a PDF">📄 PDF</button>
             <button class="btn btn-exportar"   onclick="exportarExcel()" title="Exportar a Excel">📊 Excel</button>
           </div>
@@ -589,8 +616,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
   <!-- App scripts -->
-  <script src="js/config.js?v=20260703c"></script>
-  <script src="js/app.js?v=20260703c"></script>
+  <script src="js/config.js?v=20260703d"></script>
+  <script src="js/app.js?v=20260703d"></script>
 
 </body>
 </html>

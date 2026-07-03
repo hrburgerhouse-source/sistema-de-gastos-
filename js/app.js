@@ -298,6 +298,19 @@ async function cargarNombres() {
     console.warn('Error cargando nombres, usando valores por defecto:', err);
     Estado.nombres = { ...NOMBRES_DEFAULT };
   }
+  poblarFiltroRegistradoPor();
+}
+
+function poblarFiltroRegistradoPor() {
+  const sel = document.getElementById('filtroRegistradoPor');
+  if (!sel) return;
+  const val = sel.value;
+  while (sel.options.length) sel.remove(0);
+  sel.add(new Option('Todos', ''));
+  sel.add(new Option(nombreRol('socio1'), 'socio1'));
+  sel.add(new Option(nombreRol('socio2'), 'socio2'));
+  sel.add(new Option(nombreRol('admin'), 'admin'));
+  sel.value = val;
 }
 
 function abrirEditarNombre(rol) {
@@ -320,6 +333,7 @@ async function guardarNombreSocio() {
     // set+merge funciona aunque el documento no exista aún
     await db.collection('config').doc('nombres').set(update, { merge: true });
     Estado.nombres[Estado.nombreEditandoRol] = nombre;
+    poblarFiltroRegistradoPor();
 
     // Actualizar el badge si es el usuario actual
     if (Estado.usuario?.rol === Estado.nombreEditandoRol) {
@@ -332,7 +346,7 @@ async function guardarNombreSocio() {
 
     // Refrescar lista de gastos para mostrar el nuevo nombre
     if (Estado.gastos.length > 0) {
-      renderizarListaGastos(Estado.gastos);
+      aplicarFiltrosClienteSide();
     }
     // Refrescar panel de deudas
     await mostrarPanelDeudas();
@@ -391,16 +405,19 @@ async function cargarGastosMesActual() {
   const ahora = new Date();
   const mes   = ahora.getMonth() + 1;
   const anio  = ahora.getFullYear();
-  const desde = primerDiaMes(mes, anio);
-  const hasta = ultimoDiaMes(mes, anio);
 
-  document.getElementById('filtroDesde').value = desde;
-  document.getElementById('filtroHasta').value = hasta;
+  document.getElementById('filtroDesde').value = primerDiaMes(mes, anio);
+  document.getElementById('filtroHasta').value = ultimoDiaMes(mes, anio);
+  const sel = document.getElementById('filtroPeriodoRapido');
+  if (sel) sel.value = 'mes-actual';
 
-  await cargarGastosConFiltros(desde, hasta, '', '');
+  await cargarGastosConFiltros();
 }
 
-async function cargarGastosConFiltros(desde, hasta, categoria, registradoPor) {
+async function cargarGastosConFiltros() {
+  const desde = document.getElementById('filtroDesde').value;
+  const hasta = document.getElementById('filtroHasta').value;
+
   mostrarSkeletonGastos();
   try {
     let query = db.collection('gastos').orderBy('fecha', 'desc');
@@ -410,10 +427,6 @@ async function cargarGastosConFiltros(desde, hasta, categoria, registradoPor) {
     const snap = await query.get();
     let gastos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    // Filtros que Firestore no puede combinar sin índice compuesto → se aplican en cliente
-    if (categoria)    gastos = gastos.filter(g => g.categoria === categoria);
-    if (registradoPor) gastos = gastos.filter(g => g.registradoPor === registradoPor);
-
     // Ordenar: dentro del mismo día, los más recientes primero
     gastos.sort((a, b) => {
       if (b.fecha !== a.fecha) return b.fecha.localeCompare(a.fecha);
@@ -422,8 +435,8 @@ async function cargarGastosConFiltros(desde, hasta, categoria, registradoPor) {
       return tb - ta;
     });
 
-    Estado.gastos = gastos;
-    renderizarListaGastos(gastos);
+    Estado.gastos = gastos;  // base sin filtros de cliente
+    aplicarFiltrosClienteSide();
   } catch (err) {
     console.error(err);
     mostrarToast('Error al cargar los gastos. Verifica tu conexión.', 'error');
@@ -431,16 +444,35 @@ async function cargarGastosConFiltros(desde, hasta, categoria, registradoPor) {
   }
 }
 
+// Aplica filtros de categoría, método, persona y texto sobre Estado.gastos (sin ir a Firestore)
+function aplicarFiltrosClienteSide() {
+  if (!Estado.gastos) return;
+  const categoria     = document.getElementById('filtroCategoria').value;
+  const registradoPor = document.getElementById('filtroRegistradoPor').value;
+  const metodoPago    = document.getElementById('filtroMetodoPago')?.value || '';
+  const texto         = (document.getElementById('filtroTexto')?.value || '').trim().toLowerCase();
+
+  let gastos = Estado.gastos;
+  if (categoria)     gastos = gastos.filter(g => g.categoria === categoria);
+  if (registradoPor) gastos = gastos.filter(g => g.registradoPor === registradoPor);
+  if (metodoPago)    gastos = gastos.filter(g => g.metodoPago === metodoPago);
+  if (texto) {
+    gastos = gastos.filter(g =>
+      (g.descripcion || '').toLowerCase().includes(texto) ||
+      (g.categoria   || '').toLowerCase().includes(texto) ||
+      (g.notas       || '').toLowerCase().includes(texto)
+    );
+  }
+  renderizarListaGastos(gastos);
+}
+window.aplicarFiltrosClienteSide = aplicarFiltrosClienteSide;
+
 // ================================================================
 // FILTROS
 // ================================================================
 
 function aplicarFiltros() {
-  const desde        = document.getElementById('filtroDesde').value;
-  const hasta        = document.getElementById('filtroHasta').value;
-  const categoria    = document.getElementById('filtroCategoria').value;
-  const registradoPor = document.getElementById('filtroRegistradoPor').value;
-  cargarGastosConFiltros(desde, hasta, categoria, registradoPor);
+  cargarGastosConFiltros();
 }
 window.aplicarFiltros = aplicarFiltros;
 
@@ -448,13 +480,53 @@ function limpiarFiltros() {
   const ahora = new Date();
   const mes   = ahora.getMonth() + 1;
   const anio  = ahora.getFullYear();
-  document.getElementById('filtroDesde').value         = primerDiaMes(mes, anio);
-  document.getElementById('filtroHasta').value         = ultimoDiaMes(mes, anio);
-  document.getElementById('filtroCategoria').value     = '';
-  document.getElementById('filtroRegistradoPor').value = '';
-  aplicarFiltros();
+  document.getElementById('filtroDesde').value           = primerDiaMes(mes, anio);
+  document.getElementById('filtroHasta').value           = ultimoDiaMes(mes, anio);
+  document.getElementById('filtroCategoria').value       = '';
+  document.getElementById('filtroRegistradoPor').value   = '';
+  const textoEl = document.getElementById('filtroTexto');
+  if (textoEl) textoEl.value = '';
+  const metodoEl = document.getElementById('filtroMetodoPago');
+  if (metodoEl) metodoEl.value = '';
+  const periodoEl = document.getElementById('filtroPeriodoRapido');
+  if (periodoEl) periodoEl.value = 'mes-actual';
+  cargarGastosConFiltros();
 }
 window.limpiarFiltros = limpiarFiltros;
+
+function aplicarPeriodoRapido() {
+  const val = document.getElementById('filtroPeriodoRapido').value;
+  if (!val || val === 'personalizado') return;
+
+  const ahora = new Date();
+  const mes   = ahora.getMonth() + 1;
+  const anio  = ahora.getFullYear();
+  let desde, hasta;
+
+  if (val === 'mes-actual') {
+    desde = primerDiaMes(mes, anio);
+    hasta = ultimoDiaMes(mes, anio);
+  } else if (val === 'mes-anterior') {
+    const ant = mesAnterior(mes, anio);
+    desde = primerDiaMes(ant.mes, ant.anio);
+    hasta = ultimoDiaMes(ant.mes, ant.anio);
+  } else if (val === 'ultimos-3m') {
+    const d = new Date(anio, mes - 4, 1);
+    desde = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+    hasta = ultimoDiaMes(mes, anio);
+  } else if (val === 'anio-actual') {
+    desde = `${anio}-01-01`;
+    hasta = `${anio}-12-31`;
+  } else if (val === 'todo') {
+    desde = '2020-01-01';
+    hasta = '2099-12-31';
+  }
+
+  if (desde) document.getElementById('filtroDesde').value = desde;
+  if (hasta) document.getElementById('filtroHasta').value = hasta;
+  cargarGastosConFiltros();
+}
+window.aplicarPeriodoRapido = aplicarPeriodoRapido;
 
 // ================================================================
 // RENDERIZAR LISTA DE GASTOS
@@ -488,7 +560,7 @@ function renderizarListaGastos(gastos) {
 
   let html = `
     <div class="total-general-banner">
-      <span>Total del período</span>
+      <span>Total del período <span class="filtro-conteo">· ${gastos.length} gasto${gastos.length !== 1 ? 's' : ''}</span></span>
       <strong>${formatMonto(totalGeneral)}</strong>
     </div>`;
 
@@ -603,11 +675,7 @@ async function guardarGasto() {
       mostrarToast('Gasto registrado correctamente.', 'exito');
     }
     cerrarModalGasto();
-    const desde        = document.getElementById('filtroDesde').value;
-    const hasta        = document.getElementById('filtroHasta').value;
-    const categoria_f  = document.getElementById('filtroCategoria').value;
-    const registradoPor = document.getElementById('filtroRegistradoPor').value;
-    await cargarGastosConFiltros(desde, hasta, categoria_f, registradoPor);
+    await cargarGastosConFiltros();
   } catch (err) {
     console.error(err);
     mostrarToast('Error al guardar. Inténtalo de nuevo.', 'error');
@@ -636,11 +704,7 @@ async function ejecutarEliminar() {
     await db.collection('gastos').doc(Estado.gastoAEliminarId).delete();
     mostrarToast('Gasto eliminado.', 'exito');
     cerrarModal('modalConfirmar');
-    const desde        = document.getElementById('filtroDesde').value;
-    const hasta        = document.getElementById('filtroHasta').value;
-    const categoria    = document.getElementById('filtroCategoria').value;
-    const registradoPor = document.getElementById('filtroRegistradoPor').value;
-    await cargarGastosConFiltros(desde, hasta, categoria, registradoPor);
+    await cargarGastosConFiltros();
   } catch (err) {
     console.error(err);
     mostrarToast('Error al eliminar. Inténtalo de nuevo.', 'error');
@@ -1448,15 +1512,10 @@ async function ejecutarPagoDeuda() {
     cerrarModal('modalPagarDeuda');
     Estado.pendienteAPagarId = null;
 
-    // Refrescar panel, lista de gastos y ajustes si está abierto
-    const desde        = document.getElementById('filtroDesde').value;
-    const hasta        = document.getElementById('filtroHasta').value;
-    const categoria    = document.getElementById('filtroCategoria').value;
-    const regPor       = document.getElementById('filtroRegistradoPor').value;
-
+    // Refrescar panel y lista de gastos
     await Promise.all([
       mostrarPanelDeudas(),
-      cargarGastosConFiltros(desde, hasta, categoria, regPor)
+      cargarGastosConFiltros()
     ]);
 
     if (Estado.tabActual === 'ajustes') {

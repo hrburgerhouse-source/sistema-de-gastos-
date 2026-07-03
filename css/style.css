@@ -518,6 +518,11 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
   box-shadow: 0 2px 8px var(--sombra);
 }
 
+.filtros-busqueda {
+  margin-bottom: 10px;
+}
+.filtros-busqueda .campo { margin: 0; }
+
 .filtros-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -526,7 +531,10 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
 }
 
 @media (min-width: 600px) {
-  .filtros-grid { grid-template-columns: repeat(4, 1fr); }
+  .filtros-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (min-width: 900px) {
+  .filtros-grid { grid-template-columns: repeat(6, 1fr); }
 }
 
 .campo label { margin-bottom: 4px; }
@@ -552,6 +560,11 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
   align-items: center;
   font-size: 0.9rem;
   font-weight: 600;
+}
+.filtro-conteo {
+  font-weight: 400;
+  font-size: 0.8rem;
+  opacity: 0.85;
 }
 
 .grupo-dia {
