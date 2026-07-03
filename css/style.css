@@ -974,6 +974,74 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
 .modal-confirmacion-mensaje { font-size: 0.95rem; color: var(--texto); line-height: 1.5; }
 
 /* ================================================================
+   PENDIENTES DE PAGO
+   ================================================================ */
+.resumen-pendientes-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.resumen-pendiente-card {
+  background: var(--bg);
+  border: 1.5px solid var(--borde);
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+}
+.resumen-pendiente-rol   { font-size: .75rem; font-weight: 700; color: var(--texto-muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 6px; }
+.resumen-pendiente-monto { font-size: 1.15rem; font-weight: 700; color: #856404; }
+.resumen-pendiente-sub   { font-size: .7rem; color: var(--texto-muted); margin-top: 3px; }
+
+.pendiente-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--borde-light);
+  gap: 12px;
+}
+.pendiente-item:last-child { border-bottom: none; }
+
+.pendiente-info { flex: 1; min-width: 0; }
+.pendiente-desc { font-size: .9rem; font-weight: 600; color: var(--texto); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pendiente-meta { font-size: .75rem; color: var(--texto-muted); }
+
+.pendiente-derecha { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.pendiente-monto   { font-size: 1rem; font-weight: 700; color: var(--primario); white-space: nowrap; }
+
+.badge-estado {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  white-space: nowrap;
+}
+.badge-pendiente { background: rgba(255,193,7,.15); color: #856404; border: 1px solid rgba(255,193,7,.4); }
+.badge-pagado    { background: var(--exito-light); color: var(--exito); border: 1px solid rgba(40,167,69,.3); }
+
+.alerta-pendiente {
+  background: rgba(255,193,7,.1);
+  border: 1.5px solid rgba(255,193,7,.35);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.alerta-pendiente-label { font-size: .85rem; color: var(--texto-muted); font-weight: 600; }
+.alerta-pendiente-monto { font-size: 1.1rem; font-weight: 700; color: #856404; }
+
+.pin-fila-botones { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ================================================================
    RESPONSIVE GENERAL
    ================================================================ */
 @media (max-width: 360px) {

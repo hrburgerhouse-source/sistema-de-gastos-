@@ -166,6 +166,15 @@
           <div id="tablaCategoriasResumen"></div>
         </div>
 
+        <!-- Mis compras pendientes (visible para socios) -->
+        <div id="cardMisPendientes" class="card hidden">
+          <h3>💰 Mis compras pendientes de cobro</h3>
+          <div id="misPendientesList"></div>
+          <div style="margin-top:14px;">
+            <button class="btn btn-primario" onclick="abrirModalPendiente()">+ Registrar nueva compra</button>
+          </div>
+        </div>
+
         <div class="export-botones">
           <button class="btn btn-exportar" onclick="exportarPDFResumen()">📄 Exportar PDF</button>
           <button class="btn btn-exportar" onclick="exportarExcelResumen()">📊 Exportar Excel</button>
@@ -218,21 +227,30 @@
                 <span class="pin-fila-rol">Socio 1</span>
                 <span class="pin-fila-pin" id="pinMostradoSocio1">••••</span>
               </div>
-              <button class="btn btn-secundario" onclick="abrirCambiarPin('socio1')">✏️ Cambiar</button>
+              <div class="pin-fila-botones">
+                <button class="btn btn-secundario" onclick="abrirCambiarPin('socio1')">✏️ Cambiar</button>
+                <button class="btn btn-secundario" onclick="abrirResetPin('socio1')" style="color:var(--alerta);border-color:var(--alerta)">↺ Reset</button>
+              </div>
             </div>
             <div class="pin-fila">
               <div class="pin-fila-info">
                 <span class="pin-fila-rol">Socio 2</span>
                 <span class="pin-fila-pin" id="pinMostradoSocio2">••••</span>
               </div>
-              <button class="btn btn-secundario" onclick="abrirCambiarPin('socio2')">✏️ Cambiar</button>
+              <div class="pin-fila-botones">
+                <button class="btn btn-secundario" onclick="abrirCambiarPin('socio2')">✏️ Cambiar</button>
+                <button class="btn btn-secundario" onclick="abrirResetPin('socio2')" style="color:var(--alerta);border-color:var(--alerta)">↺ Reset</button>
+              </div>
             </div>
             <div class="pin-fila">
               <div class="pin-fila-info">
                 <span class="pin-fila-rol">Administrador</span>
                 <span class="pin-fila-pin" id="pinMostradoAdmin">••••</span>
               </div>
-              <button class="btn btn-secundario" onclick="abrirCambiarPin('admin')">✏️ Cambiar</button>
+              <div class="pin-fila-botones">
+                <button class="btn btn-secundario" onclick="abrirCambiarPin('admin')">✏️ Cambiar</button>
+                <button class="btn btn-secundario" onclick="abrirResetPin('admin')" style="color:var(--alerta);border-color:var(--alerta)">↺ Reset</button>
+              </div>
             </div>
           </div>
         </div>
@@ -243,6 +261,19 @@
           <div id="listaCategorias" class="categoria-lista"></div>
           <div style="margin-top:14px;">
             <button class="btn btn-primario" onclick="abrirModalCategoria()">+ Nueva categoría</button>
+          </div>
+        </div>
+
+        <!-- Compras pendientes de pago -->
+        <div class="card">
+          <h3>💰 Compras pendientes de pago</h3>
+          <p style="font-size:.85rem;color:var(--texto-muted);margin-bottom:14px">
+            Registra cuando un socio compra insumos con su propio dinero y el restaurante le queda debiendo.
+          </p>
+          <div class="resumen-pendientes-grid" id="resumenPendientesAdmin"></div>
+          <div id="listaPendientesAdmin"></div>
+          <div style="margin-top:14px;">
+            <button class="btn btn-primario" onclick="abrirModalPendiente()">+ Registrar compra pendiente</button>
           </div>
         </div>
 
@@ -388,6 +419,77 @@
       <div class="modal-footer">
         <button class="btn btn-secundario" onclick="cerrarModal('modalCategoria')">Cancelar</button>
         <button class="btn btn-primario"   onclick="guardarCategoria()">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: REGISTRAR COMPRA PENDIENTE
+       ============================================================ -->
+  <div id="modalPendiente" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalPendienteTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="modalPendienteTitulo">Registrar compra pendiente</h2>
+        <button class="modal-cerrar" onclick="cerrarModal('modalPendiente')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:.85rem;color:var(--texto-muted);background:rgba(255,193,7,.1);border:1px solid rgba(255,193,7,.3);border-radius:10px;padding:10px 12px;margin-bottom:16px">
+          💡 Usa esto cuando un socio compra insumos con su propio dinero y el restaurante le queda debiendo el pago.
+        </p>
+        <div class="form-grid">
+          <div class="campo">
+            <label for="pendienteFecha">Fecha de compra</label>
+            <input type="date" id="pendienteFecha">
+          </div>
+          <div class="campo">
+            <label for="pendienteSocio">Comprador</label>
+            <select id="pendienteSocio">
+              <option value="socio1">Socio 1</option>
+              <option value="socio2">Socio 2</option>
+            </select>
+          </div>
+          <div class="campo campo-completo">
+            <label for="pendienteDescripcion">Descripción de la compra</label>
+            <input type="text" id="pendienteDescripcion" placeholder="Ej: Compra de carne — Proveedor X">
+          </div>
+          <div class="campo campo-completo campo-monto">
+            <label for="pendienteMonto">Monto que se le debe (USD)</label>
+            <input type="number" id="pendienteMonto" placeholder="0.00" min="0.01" step="0.01" inputmode="decimal">
+          </div>
+          <div class="campo campo-completo">
+            <label for="pendienteNotas">Notas (opcional)</label>
+            <textarea id="pendienteNotas" placeholder="Información adicional…" rows="2"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModal('modalPendiente')">Cancelar</button>
+        <button class="btn btn-primario"   onclick="guardarPendiente()">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: RESTABLECER PIN
+       ============================================================ -->
+  <div id="modalResetPin" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="resetPinTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="resetPinTitulo">Restablecer PIN</h2>
+        <button class="modal-cerrar" onclick="cerrarModal('modalResetPin')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="background:var(--alerta-light);border:1.5px solid var(--alerta);border-radius:12px;padding:12px 14px;margin-bottom:16px;font-size:.88rem;color:var(--alerta)">
+          ⚠️ <span id="resetPinMensaje"></span>
+        </div>
+        <div class="campo">
+          <label for="resetPinAdmin">Confirma con tu PIN de administrador</label>
+          <input type="password" id="resetPinAdmin" maxlength="4" inputmode="numeric" placeholder="••••" autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModal('modalResetPin')">Cancelar</button>
+        <button class="btn btn-peligro"    onclick="confirmarResetPin()">↺ Restablecer PIN</button>
       </div>
     </div>
   </div>

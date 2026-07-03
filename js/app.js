@@ -20,7 +20,9 @@ const Estado = {
   gastoAEliminarId: null,
   categoriaEditandoId: null,
   pinCambiandoRol: null,
+  pinResetandoRol: null,
   gastosResumenActual: [],  // gastos del período en la tab Resumen
+  pendientes:   [],         // compras pendientes de pago
   graficas: { dona: null, barras: null, linea: null },
 };
 
@@ -594,6 +596,12 @@ async function cargarResumen() {
 
     Estado.gastosResumenActual = gastosActuales;
     renderizarResumen(gastosActuales, gastosAnteriores, mes, anio);
+
+    // Cargar pendientes del socio (si no es admin)
+    if (Estado.usuario?.rol !== 'admin') {
+      await cargarPendientes();
+      renderizarMisPendientes();
+    }
   } catch (err) {
     console.error(err);
     mostrarToast('Error al cargar el resumen.', 'error');
@@ -856,8 +864,9 @@ function renderizarGraficas(gastosMes, gastos6m, mes, anio) {
 // TAB: AJUSTES
 // ================================================================
 
-function cargarAjustes() {
+async function cargarAjustes() {
   renderizarListaCategorias();
+
   // Mostrar los PINs (enmascarados)
   const { socio1, socio2, admin } = Estado.pins;
   const mask = p => (p || '????').split('').map(() => '•').join('');
@@ -867,6 +876,10 @@ function cargarAjustes() {
   if (el1) el1.textContent = mask(socio1);
   if (el2) el2.textContent = mask(socio2);
   if (el3) el3.textContent = mask(admin);
+
+  // Cargar y renderizar pendientes
+  await cargarPendientes();
+  renderizarPendientesAdmin();
 }
 window.cargarAjustes = cargarAjustes;
 
@@ -1163,6 +1176,265 @@ async function generarExcel(gastos, desde, hasta) {
   XLSX.writeFile(wb, nombreArchivo);
   mostrarToast('Excel generado correctamente.', 'exito');
 }
+
+// ================================================================
+// RESET DE PIN
+// ================================================================
+
+function abrirResetPin(rol) {
+  Estado.pinResetandoRol = rol;
+  document.getElementById('resetPinTitulo').textContent = `Restablecer PIN — ${nombreRol(rol)}`;
+  document.getElementById('resetPinMensaje').textContent =
+    `El PIN de ${nombreRol(rol)} volverá al valor por defecto "${PINS_DEFAULT[rol]}". Esta acción no se puede deshacer.`;
+  document.getElementById('resetPinAdmin').value = '';
+  abrirModal('modalResetPin');
+}
+window.abrirResetPin = abrirResetPin;
+
+async function confirmarResetPin() {
+  const pinAdmin = document.getElementById('resetPinAdmin').value;
+
+  if (pinAdmin !== Estado.pins.admin) {
+    return mostrarToast('PIN de administrador incorrecto.', 'error');
+  }
+
+  mostrarSpinner();
+  try {
+    const rol = Estado.pinResetandoRol;
+    const update = {};
+    update[rol] = PINS_DEFAULT[rol];
+    await db.collection('config').doc('pins').update(update);
+    Estado.pins[rol] = PINS_DEFAULT[rol];
+    mostrarToast(`PIN de ${nombreRol(rol)} restablecido a ${PINS_DEFAULT[rol]}.`, 'exito');
+    cerrarModal('modalResetPin');
+    cargarAjustes();
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al restablecer el PIN.', 'error');
+  }
+  ocultarSpinner();
+}
+window.confirmarResetPin = confirmarResetPin;
+
+// ================================================================
+// PENDIENTES DE PAGO
+// ================================================================
+
+async function cargarPendientes() {
+  try {
+    const snap = await db.collection('pendientes').orderBy('timestamp', 'desc').get();
+    Estado.pendientes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.error('Error cargando pendientes:', err);
+    Estado.pendientes = [];
+  }
+}
+
+// Vista admin — todos los pendientes
+function renderizarPendientesAdmin() {
+  const pendientes = Estado.pendientes;
+
+  const totalS1 = pendientes
+    .filter(p => p.socio === 'socio1' && p.estado === 'pendiente')
+    .reduce((s, p) => s + (p.monto || 0), 0);
+  const totalS2 = pendientes
+    .filter(p => p.socio === 'socio2' && p.estado === 'pendiente')
+    .reduce((s, p) => s + (p.monto || 0), 0);
+
+  const resumenEl = document.getElementById('resumenPendientesAdmin');
+  if (resumenEl) {
+    resumenEl.innerHTML = `
+      <div class="resumen-pendiente-card">
+        <div class="resumen-pendiente-rol">Socio 1</div>
+        <div class="resumen-pendiente-monto">${formatMonto(totalS1)}</div>
+        <div class="resumen-pendiente-sub">pendiente de cobro</div>
+      </div>
+      <div class="resumen-pendiente-card">
+        <div class="resumen-pendiente-rol">Socio 2</div>
+        <div class="resumen-pendiente-monto">${formatMonto(totalS2)}</div>
+        <div class="resumen-pendiente-sub">pendiente de cobro</div>
+      </div>`;
+  }
+
+  const listaEl = document.getElementById('listaPendientesAdmin');
+  if (!listaEl) return;
+
+  if (!pendientes.length) {
+    listaEl.innerHTML =
+      '<p style="color:var(--texto-muted);font-size:.88rem;text-align:center;padding:16px 0">No hay compras pendientes registradas.</p>';
+    return;
+  }
+
+  listaEl.innerHTML = pendientes.map(p => `
+    <div class="pendiente-item">
+      <div class="pendiente-info">
+        <div class="pendiente-desc">${p.descripcion || '—'}</div>
+        <div class="pendiente-meta">
+          ${p.fecha} · ${nombreRol(p.socio)}
+          ${p.estado === 'pagado' && p.fechaPago ? ` · Pagado el ${p.fechaPago}` : ''}
+          ${p.notas ? ` · ${p.notas}` : ''}
+        </div>
+      </div>
+      <div class="pendiente-derecha">
+        <div class="pendiente-monto">${formatMonto(p.monto)}</div>
+        <span class="badge-estado badge-${p.estado}">
+          ${p.estado === 'pendiente' ? 'Pendiente' : '✓ Pagado'}
+        </span>
+        <div style="display:flex;gap:6px;">
+          ${p.estado === 'pendiente' ? `
+            <button class="btn-accion btn-editar" onclick="marcarPendientePagado('${p.id}')" title="Marcar como pagado">✓</button>` : ''}
+          <button class="btn-accion btn-eliminar" onclick="eliminarPendiente('${p.id}')" title="Eliminar">🗑️</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+// Vista socio — solo sus propios pendientes
+function renderizarMisPendientes() {
+  const cardEl = document.getElementById('cardMisPendientes');
+  if (!cardEl) return;
+
+  const rol = Estado.usuario?.rol;
+
+  // Admin ve todo en Ajustes, no necesita esta sección
+  if (rol === 'admin') {
+    cardEl.classList.add('hidden');
+    return;
+  }
+
+  const misPendientes = Estado.pendientes.filter(p => p.socio === rol);
+  cardEl.classList.remove('hidden');
+
+  const totalPendiente = misPendientes
+    .filter(p => p.estado === 'pendiente')
+    .reduce((s, p) => s + (p.monto || 0), 0);
+
+  const listaEl = document.getElementById('misPendientesList');
+
+  if (!misPendientes.length) {
+    listaEl.innerHTML =
+      '<p style="color:var(--texto-muted);font-size:.88rem">No tienes compras pendientes de cobro registradas.</p>';
+    return;
+  }
+
+  listaEl.innerHTML = `
+    <div class="alerta-pendiente">
+      <span class="alerta-pendiente-label">💰 Total pendiente de cobro</span>
+      <span class="alerta-pendiente-monto">${formatMonto(totalPendiente)}</span>
+    </div>
+    ${misPendientes.map(p => `
+      <div class="pendiente-item">
+        <div class="pendiente-info">
+          <div class="pendiente-desc">${p.descripcion || '—'}</div>
+          <div class="pendiente-meta">
+            ${p.fecha}
+            ${p.estado === 'pagado' && p.fechaPago ? ` · ✓ Pagado el ${p.fechaPago}` : ''}
+            ${p.notas ? ` · ${p.notas}` : ''}
+          </div>
+        </div>
+        <div class="pendiente-derecha">
+          <div class="pendiente-monto">${formatMonto(p.monto)}</div>
+          <span class="badge-estado badge-${p.estado}">
+            ${p.estado === 'pendiente' ? 'Pendiente' : '✓ Pagado'}
+          </span>
+        </div>
+      </div>`).join('')}`;
+}
+
+// Modal: abrir
+function abrirModalPendiente() {
+  const rol = Estado.usuario?.rol;
+  const selSocio = document.getElementById('pendienteSocio');
+
+  document.getElementById('pendienteFecha').value        = hoy();
+  document.getElementById('pendienteDescripcion').value  = '';
+  document.getElementById('pendienteMonto').value        = '';
+  document.getElementById('pendienteNotas').value        = '';
+
+  // Si es socio, preselecciona su rol y bloquea el selector
+  if (rol !== 'admin') {
+    selSocio.value    = rol;
+    selSocio.disabled = true;
+  } else {
+    selSocio.value    = 'socio1';
+    selSocio.disabled = false;
+  }
+
+  abrirModal('modalPendiente');
+}
+window.abrirModalPendiente = abrirModalPendiente;
+
+// Modal: guardar
+async function guardarPendiente() {
+  const fecha       = document.getElementById('pendienteFecha').value;
+  const socio       = document.getElementById('pendienteSocio').value;
+  const descripcion = document.getElementById('pendienteDescripcion').value.trim();
+  const monto       = parseFloat(document.getElementById('pendienteMonto').value);
+  const notas       = document.getElementById('pendienteNotas').value.trim();
+
+  if (!fecha)                     return mostrarToast('Selecciona una fecha.', 'advertencia');
+  if (!descripcion)               return mostrarToast('Ingresa una descripción de la compra.', 'advertencia');
+  if (isNaN(monto) || monto <= 0) return mostrarToast('El monto debe ser mayor a $0.00.', 'advertencia');
+
+  mostrarSpinner();
+  try {
+    await db.collection('pendientes').add({
+      fecha, socio, descripcion, monto, notas,
+      estado: 'pendiente',
+      registradoPor: Estado.usuario.rol,
+      fechaPago: null,
+      timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    mostrarToast('Compra pendiente registrada correctamente.', 'exito');
+    cerrarModal('modalPendiente');
+    await cargarPendientes();
+    if (Estado.usuario?.rol === 'admin') renderizarPendientesAdmin();
+    else renderizarMisPendientes();
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al guardar. Inténtalo de nuevo.', 'error');
+  }
+  ocultarSpinner();
+}
+window.guardarPendiente = guardarPendiente;
+
+// Marcar como pagado (solo admin)
+async function marcarPendientePagado(id) {
+  if (!confirm('¿Marcar esta compra como pagada al socio?')) return;
+  mostrarSpinner();
+  try {
+    await db.collection('pendientes').doc(id).update({
+      estado:    'pagado',
+      fechaPago: hoy(),
+      pagadoPor: Estado.usuario.rol
+    });
+    mostrarToast('Marcado como pagado.', 'exito');
+    await cargarPendientes();
+    renderizarPendientesAdmin();
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al actualizar. Inténtalo de nuevo.', 'error');
+  }
+  ocultarSpinner();
+}
+window.marcarPendientePagado = marcarPendientePagado;
+
+// Eliminar pendiente (solo admin)
+async function eliminarPendiente(id) {
+  if (!confirm('¿Eliminar este registro de compra pendiente?')) return;
+  mostrarSpinner();
+  try {
+    await db.collection('pendientes').doc(id).delete();
+    mostrarToast('Registro eliminado.', 'exito');
+    await cargarPendientes();
+    renderizarPendientesAdmin();
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al eliminar. Inténtalo de nuevo.', 'error');
+  }
+  ocultarSpinner();
+}
+window.eliminarPendiente = eliminarPendiente;
 
 // ================================================================
 // INICIALIZACIÓN DE SELECTORES DE FECHA
