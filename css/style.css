@@ -974,6 +974,107 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
 .modal-confirmacion-mensaje { font-size: 0.95rem; color: var(--texto); line-height: 1.5; }
 
 /* ================================================================
+   PANEL DE DEUDAS (top de Gastos)
+   ================================================================ */
+.panel-deudas {
+  background: var(--bg-card);
+  border-bottom: 1.5px solid rgba(255,193,7,.35);
+  padding: 14px 16px;
+}
+
+.deuda-box {
+  background: linear-gradient(135deg, rgba(255,193,7,.07), rgba(255,107,53,.07));
+  border: 1.5px solid rgba(255,193,7,.4);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.deuda-box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.deuda-box-titulo {
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--texto);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.deuda-total-pill {
+  background: rgba(255,193,7,.2);
+  border: 1.5px solid rgba(255,193,7,.5);
+  color: #856404;
+  padding: 4px 14px;
+  border-radius: 20px;
+  font-size: .85rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Grid de socios (admin) */
+.deuda-socios-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.deuda-socio-card {
+  background: var(--bg-card);
+  border: 1.5px solid var(--borde);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.deuda-socio-card.sin-deuda { opacity: .5; }
+
+.deuda-socio-nombre { font-size: .72rem; font-weight: 700; color: var(--texto-muted); text-transform: uppercase; letter-spacing: .4px; }
+.deuda-socio-monto  { font-size: 1.25rem; font-weight: 700; color: #856404; }
+.deuda-socio-sub    { font-size: .72rem; color: var(--texto-muted); }
+
+/* Lista de items de deuda */
+.deuda-items-lista { display: flex; flex-direction: column; gap: 0; }
+
+.deuda-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--borde-light);
+}
+.deuda-item:last-child { border-bottom: none; }
+
+.deuda-item-izq       { flex: 1; min-width: 0; }
+.deuda-item-desc      { font-size: .88rem; font-weight: 600; color: var(--texto); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deuda-item-meta      { font-size: .72rem; color: var(--texto-muted); margin-top: 2px; }
+.deuda-item-monto     { font-size: .95rem; font-weight: 700; color: var(--primario); white-space: nowrap; flex-shrink: 0; }
+
+.deuda-vacio          { text-align: center; padding: 12px 0; color: var(--exito); font-size: .88rem; font-weight: 600; }
+
+/* Vista socio — total destacado */
+.deuda-socio-total {
+  background: var(--bg-card);
+  border: 1.5px solid var(--borde);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.deuda-socio-total-label { font-size: .85rem; color: var(--texto-muted); font-weight: 600; }
+.deuda-socio-total-monto { font-size: 1.4rem; font-weight: 700; color: #856404; }
+
+/* ================================================================
    PENDIENTES DE PAGO
    ================================================================ */
 .resumen-pendientes-grid {

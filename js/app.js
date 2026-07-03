@@ -185,7 +185,7 @@ async function iniciarSesion(rol) {
   document.getElementById('appPrincipal').classList.remove('hidden');
 
   try {
-    await Promise.all([cargarCategorias(), cargarGastosMesActual()]);
+    await Promise.all([cargarCategorias(), cargarGastosMesActual(), mostrarPanelDeudas()]);
   } catch (err) {
     console.error(err);
     mostrarToast('Error al cargar datos. Verifica tu conexión a internet.', 'error');
@@ -1178,6 +1178,141 @@ async function generarExcel(gastos, desde, hasta) {
 }
 
 // ================================================================
+// PANEL DE DEUDAS (top de la tab Gastos)
+// ================================================================
+
+async function mostrarPanelDeudas() {
+  const panel = document.getElementById('panelDeudas');
+  if (!panel) return;
+
+  await cargarPendientes();
+  const pendientes = Estado.pendientes.filter(p => p.estado === 'pendiente');
+  const rol = Estado.usuario?.rol;
+
+  if (!pendientes.length) {
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
+
+  panel.classList.remove('hidden');
+
+  if (rol === 'admin') {
+    renderizarPanelAdmin(panel, pendientes);
+  } else {
+    renderizarPanelSocio(panel, pendientes, rol);
+  }
+}
+window.mostrarPanelDeudas = mostrarPanelDeudas;
+
+// Panel para ADMIN: ve lo que debe a cada socio
+function renderizarPanelAdmin(panel, pendientes) {
+  const totalS1 = pendientes.filter(p => p.socio === 'socio1').reduce((s, p) => s + (p.monto||0), 0);
+  const totalS2 = pendientes.filter(p => p.socio === 'socio2').reduce((s, p) => s + (p.monto||0), 0);
+  const totalDeuda = totalS1 + totalS2;
+
+  const itemsHtml = pendientes.map(p => `
+    <div class="deuda-item">
+      <div class="deuda-item-izq">
+        <div class="deuda-item-desc">${p.descripcion || '—'}</div>
+        <div class="deuda-item-meta">${p.fecha} · ${nombreRol(p.socio)}${p.notas ? ' · ' + p.notas : ''}</div>
+      </div>
+      <div class="deuda-item-monto">${formatMonto(p.monto)}</div>
+      <button class="btn-accion btn-editar" onclick="pagarDeudaDesdePanel('${p.id}')" title="Marcar como pagado" style="flex-shrink:0">✓</button>
+    </div>`).join('');
+
+  panel.innerHTML = `
+    <div class="panel-deudas">
+      <div class="deuda-box">
+        <div class="deuda-box-header">
+          <span class="deuda-box-titulo">💰 Deudas con socios</span>
+          <span class="deuda-total-pill">Total: ${formatMonto(totalDeuda)}</span>
+        </div>
+        <div class="deuda-socios-grid">
+          <div class="deuda-socio-card ${totalS1 === 0 ? 'sin-deuda' : ''}">
+            <span class="deuda-socio-nombre">Socio 1</span>
+            <span class="deuda-socio-monto">${formatMonto(totalS1)}</span>
+            <span class="deuda-socio-sub">${pendientes.filter(p=>p.socio==='socio1').length} compra(s) pendiente(s)</span>
+          </div>
+          <div class="deuda-socio-card ${totalS2 === 0 ? 'sin-deuda' : ''}">
+            <span class="deuda-socio-nombre">Socio 2</span>
+            <span class="deuda-socio-monto">${formatMonto(totalS2)}</span>
+            <span class="deuda-socio-sub">${pendientes.filter(p=>p.socio==='socio2').length} compra(s) pendiente(s)</span>
+          </div>
+        </div>
+        <div class="deuda-items-lista">${itemsHtml}</div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primario" onclick="abrirModalPendiente()" style="font-size:.82rem;padding:8px 14px">+ Registrar compra</button>
+          <button class="btn btn-secundario" onclick="cambiarTab('ajustes')" style="font-size:.82rem;padding:8px 14px">⚙️ Gestionar en Ajustes</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// Panel para SOCIO: ve lo que se le debe a él
+function renderizarPanelSocio(panel, pendientes, rol) {
+  const misPendientes = pendientes.filter(p => p.socio === rol);
+
+  if (!misPendientes.length) {
+    panel.classList.add('hidden');
+    return;
+  }
+
+  const total = misPendientes.reduce((s, p) => s + (p.monto||0), 0);
+
+  const itemsHtml = misPendientes.map(p => `
+    <div class="deuda-item">
+      <div class="deuda-item-izq">
+        <div class="deuda-item-desc">${p.descripcion || '—'}</div>
+        <div class="deuda-item-meta">${p.fecha}${p.notas ? ' · ' + p.notas : ''}</div>
+      </div>
+      <div class="deuda-item-monto">${formatMonto(p.monto)}</div>
+    </div>`).join('');
+
+  panel.innerHTML = `
+    <div class="panel-deudas">
+      <div class="deuda-box">
+        <div class="deuda-box-header">
+          <span class="deuda-box-titulo">💰 Te deben estas compras</span>
+          <span class="deuda-total-pill">${formatMonto(total)}</span>
+        </div>
+        <div class="deuda-socio-total">
+          <span class="deuda-socio-total-label">Total pendiente de cobro</span>
+          <span class="deuda-socio-total-monto">${formatMonto(total)}</span>
+        </div>
+        <div class="deuda-items-lista">${itemsHtml}</div>
+        <div style="margin-top:12px;">
+          <button class="btn btn-primario" onclick="abrirModalPendiente()" style="font-size:.82rem;padding:8px 14px">+ Registrar nueva compra</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// Pagar desde el panel (admin)
+async function pagarDeudaDesdePanel(id) {
+  const p = Estado.pendientes.find(x => x.id === id);
+  if (!confirm(`¿Marcar como pagada la compra "${p?.descripcion}" por ${formatMonto(p?.monto)}?`)) return;
+  mostrarSpinner();
+  try {
+    await db.collection('pendientes').doc(id).update({
+      estado: 'pagado', fechaPago: hoy(), pagadoPor: Estado.usuario.rol
+    });
+    mostrarToast(`Pago de ${formatMonto(p?.monto)} registrado a ${nombreRol(p?.socio)}.`, 'exito');
+    await mostrarPanelDeudas();
+    // Refrescar Ajustes si está abierto
+    if (Estado.tabActual === 'ajustes') {
+      await cargarPendientes();
+      renderizarPendientesAdmin();
+    }
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al registrar el pago.', 'error');
+  }
+  ocultarSpinner();
+}
+window.pagarDeudaDesdePanel = pagarDeudaDesdePanel;
+
+// ================================================================
 // RESET DE PIN
 // ================================================================
 
@@ -1388,6 +1523,7 @@ async function guardarPendiente() {
     mostrarToast('Compra pendiente registrada correctamente.', 'exito');
     cerrarModal('modalPendiente');
     await cargarPendientes();
+    await mostrarPanelDeudas();
     if (Estado.usuario?.rol === 'admin') renderizarPendientesAdmin();
     else renderizarMisPendientes();
   } catch (err) {
@@ -1410,6 +1546,7 @@ async function marcarPendientePagado(id) {
     });
     mostrarToast('Marcado como pagado.', 'exito');
     await cargarPendientes();
+    await mostrarPanelDeudas();
     renderizarPendientesAdmin();
   } catch (err) {
     console.error(err);
