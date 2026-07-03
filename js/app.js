@@ -238,9 +238,15 @@ function cambiarTabSilencioso(tab) {
     btn.setAttribute('aria-selected', activo);
   });
 
-  document.querySelectorAll('.tab-contenido').forEach(el => el.classList.remove('activo'));
+  document.querySelectorAll('.tab-contenido').forEach(el => {
+    el.classList.remove('activo');
+    el.classList.add('hidden');
+  });
   const contenido = document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1));
-  if (contenido) contenido.classList.add('activo');
+  if (contenido) {
+    contenido.classList.remove('hidden');
+    contenido.classList.add('activo');
+  }
 }
 
 // ================================================================
