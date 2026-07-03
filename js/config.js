@@ -6,12 +6,12 @@
 //                    → Tus aplicaciones → SDK de Firebase
 // ================================================================
 const FIREBASE_CONFIG = {
-  apiKey:            "TU_API_KEY",
-  authDomain:        "TU_PROJECT_ID.firebaseapp.com",
-  projectId:         "TU_PROJECT_ID",
-  storageBucket:     "TU_PROJECT_ID.appspot.com",
-  messagingSenderId: "TU_MESSAGING_SENDER_ID",
-  appId:             "TU_APP_ID"
+  apiKey:            "AIzaSyDMKl8VBu9AV2k4PrXlCz8gS6J5m10vluk",
+  authDomain:        "sistema-de-gastos-6a91d.firebaseapp.com",
+  projectId:         "sistema-de-gastos-6a91d",
+  storageBucket:     "sistema-de-gastos-6a91d.firebasestorage.app",
+  messagingSenderId: "155599396111",
+  appId:             "1:155599396111:web:6481a3fc8d5ccfb7cbf27a"
 };
 
 // ================================================================
