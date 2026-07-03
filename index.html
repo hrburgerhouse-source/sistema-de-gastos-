@@ -146,8 +146,10 @@
         <!-- Lista de gastos -->
         <div id="listaGastos"></div>
 
-        <!-- FAB -->
+        <!-- FAB principal: nuevo gasto -->
         <button class="fab" onclick="abrirModalNuevoGasto()" title="Registrar nuevo gasto" aria-label="Nuevo gasto">+</button>
+        <!-- FAB secundario: registrar deuda (solo socios) -->
+        <button class="fab-secundario hidden" id="fabPendiente" onclick="abrirModalPendiente()" title="Registrar compra pendiente de cobro" aria-label="Registrar deuda">💰</button>
       </div>
 
       <!-- ======================================================
@@ -422,6 +424,47 @@
       <div class="modal-footer">
         <button class="btn btn-secundario" onclick="cerrarModal('modalCategoria')">Cancelar</button>
         <button class="btn btn-primario"   onclick="guardarCategoria()">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: PAGAR DEUDA (admin) — también registra el gasto
+       ============================================================ -->
+  <div id="modalPagarDeuda" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pagarDeudaTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="pagarDeudaTitulo">Registrar pago a socio</h2>
+        <button class="modal-cerrar" onclick="cerrarModal('modalPagarDeuda')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Resumen del pendiente -->
+        <div id="pagarDeudaInfo" style="background:var(--bg);border:1.5px solid var(--borde);border-radius:12px;padding:14px;margin-bottom:16px;"></div>
+        <p style="font-size:.82rem;color:var(--texto-muted);margin-bottom:14px;">
+          ℹ️ Al confirmar, se marcará la deuda como pagada y se registrará automáticamente un gasto en el sistema.
+        </p>
+        <div class="form-grid">
+          <div class="campo">
+            <label for="pagarDeudaFecha">Fecha de pago</label>
+            <input type="date" id="pagarDeudaFecha">
+          </div>
+          <div class="campo">
+            <label for="pagarDeudaMetodo">Método de pago</label>
+            <select id="pagarDeudaMetodo">
+              <option value="Efectivo">💵 Efectivo</option>
+              <option value="Transferencia">🏦 Transferencia</option>
+              <option value="Tarjeta">💳 Tarjeta</option>
+            </select>
+          </div>
+          <div class="campo campo-completo">
+            <label for="pagarDeudaNotas">Notas (opcional)</label>
+            <input type="text" id="pagarDeudaNotas" placeholder="Referencia de pago, número de transacción, etc.">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModal('modalPagarDeuda')">Cancelar</button>
+        <button class="btn btn-primario"   onclick="ejecutarPagoDeuda()">✓ Pagar y registrar gasto</button>
       </div>
     </div>
   </div>

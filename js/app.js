@@ -21,6 +21,7 @@ const Estado = {
   categoriaEditandoId: null,
   pinCambiandoRol: null,
   pinResetandoRol: null,
+  pendienteAPagarId: null,
   gastosResumenActual: [],  // gastos del período en la tab Resumen
   pendientes:   [],         // compras pendientes de pago
   graficas: { dona: null, barras: null, linea: null },
@@ -181,6 +182,10 @@ async function iniciarSesion(rol) {
   document.getElementById('usuarioActual').textContent = nombreRol(rol);
   document.querySelector('.tab-admin').classList.toggle('hidden', rol !== 'admin');
 
+  // FAB 💰 solo visible para socios (no para admin)
+  const fabPendiente = document.getElementById('fabPendiente');
+  if (fabPendiente) fabPendiente.classList.toggle('hidden', rol === 'admin');
+
   document.getElementById('pantallaPin').classList.add('hidden');
   document.getElementById('appPrincipal').classList.remove('hidden');
 
@@ -206,6 +211,10 @@ function cerrarSesion() {
 
   document.getElementById('appPrincipal').classList.add('hidden');
   document.getElementById('pantallaPin').classList.remove('hidden');
+
+  // Ocultar FAB de pendientes
+  const fabPendiente = document.getElementById('fabPendiente');
+  if (fabPendiente) fabPendiente.classList.add('hidden');
 
   // Resetear PIN y volver al tab Gastos
   Estado.pinIngresado = '';
@@ -1294,29 +1303,96 @@ function renderizarPanelSocio(panel, pendientes, rol) {
     </div>`;
 }
 
-// Pagar desde el panel (admin)
-async function pagarDeudaDesdePanel(id) {
+// Pagar desde el panel — abre el modal de pago
+function pagarDeudaDesdePanel(id) {
+  abrirModalPagarDeuda(id);
+}
+window.pagarDeudaDesdePanel = pagarDeudaDesdePanel;
+
+// Abrir modal de pago (admin)
+function abrirModalPagarDeuda(id) {
+  Estado.pendienteAPagarId = id;
   const p = Estado.pendientes.find(x => x.id === id);
-  if (!confirm(`¿Marcar como pagada la compra "${p?.descripcion}" por ${formatMonto(p?.monto)}?`)) return;
+  if (!p) return;
+
+  document.getElementById('pagarDeudaInfo').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div>
+        <div style="font-weight:700;color:var(--texto);font-size:.95rem">${p.descripcion}</div>
+        <div style="font-size:.78rem;color:var(--texto-muted);margin-top:3px">
+          ${p.fecha} · ${nombreRol(p.socio)}${p.notas ? ' · ' + p.notas : ''}
+        </div>
+      </div>
+      <div style="font-size:1.3rem;font-weight:700;color:var(--primario);white-space:nowrap">${formatMonto(p.monto)}</div>
+    </div>`;
+
+  document.getElementById('pagarDeudaFecha').value   = hoy();
+  document.getElementById('pagarDeudaMetodo').value  = 'Efectivo';
+  document.getElementById('pagarDeudaNotas').value   = '';
+  abrirModal('modalPagarDeuda');
+}
+window.abrirModalPagarDeuda = abrirModalPagarDeuda;
+
+// Confirmar pago: marca pendiente como pagado Y crea gasto
+async function ejecutarPagoDeuda() {
+  const id  = Estado.pendienteAPagarId;
+  const p   = Estado.pendientes.find(x => x.id === id);
+  if (!p) return;
+
+  const metodoPago = document.getElementById('pagarDeudaMetodo').value;
+  const fechaPago  = document.getElementById('pagarDeudaFecha').value;
+  const notas      = document.getElementById('pagarDeudaNotas').value.trim();
+
+  if (!fechaPago) return mostrarToast('Selecciona la fecha de pago.', 'advertencia');
+
   mostrarSpinner();
   try {
+    // 1. Marcar pendiente como pagado
     await db.collection('pendientes').doc(id).update({
-      estado: 'pagado', fechaPago: hoy(), pagadoPor: Estado.usuario.rol
+      estado:    'pagado',
+      fechaPago,
+      pagadoPor: Estado.usuario.rol,
+      metodoPago
     });
-    mostrarToast(`Pago de ${formatMonto(p?.monto)} registrado a ${nombreRol(p?.socio)}.`, 'exito');
-    await mostrarPanelDeudas();
-    // Refrescar Ajustes si está abierto
+
+    // 2. Registrar automáticamente el pago como gasto
+    await db.collection('gastos').add({
+      fecha:        fechaPago,
+      categoria:    'Pago a socio',
+      descripcion:  `Pago a ${nombreRol(p.socio)} — ${p.descripcion}`,
+      monto:        p.monto,
+      metodoPago,
+      notas:        notas || `Liquidación compra del ${p.fecha}`,
+      registradoPor: Estado.usuario.rol,
+      timestamp:    firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    mostrarToast(`✓ Pago de ${formatMonto(p.monto)} a ${nombreRol(p.socio)} registrado.`, 'exito');
+    cerrarModal('modalPagarDeuda');
+    Estado.pendienteAPagarId = null;
+
+    // Refrescar panel, lista de gastos y ajustes si está abierto
+    const desde        = document.getElementById('filtroDesde').value;
+    const hasta        = document.getElementById('filtroHasta').value;
+    const categoria    = document.getElementById('filtroCategoria').value;
+    const regPor       = document.getElementById('filtroRegistradoPor').value;
+
+    await Promise.all([
+      mostrarPanelDeudas(),
+      cargarGastosConFiltros(desde, hasta, categoria, regPor)
+    ]);
+
     if (Estado.tabActual === 'ajustes') {
       await cargarPendientes();
       renderizarPendientesAdmin();
     }
   } catch (err) {
     console.error(err);
-    mostrarToast('Error al registrar el pago.', 'error');
+    mostrarToast('Error al registrar el pago. Inténtalo de nuevo.', 'error');
   }
   ocultarSpinner();
 }
-window.pagarDeudaDesdePanel = pagarDeudaDesdePanel;
+window.ejecutarPagoDeuda = ejecutarPagoDeuda;
 
 // ================================================================
 // RESET DE PIN
@@ -1540,25 +1616,9 @@ async function guardarPendiente() {
 }
 window.guardarPendiente = guardarPendiente;
 
-// Marcar como pagado (solo admin)
-async function marcarPendientePagado(id) {
-  if (!confirm('¿Marcar esta compra como pagada al socio?')) return;
-  mostrarSpinner();
-  try {
-    await db.collection('pendientes').doc(id).update({
-      estado:    'pagado',
-      fechaPago: hoy(),
-      pagadoPor: Estado.usuario.rol
-    });
-    mostrarToast('Marcado como pagado.', 'exito');
-    await cargarPendientes();
-    await mostrarPanelDeudas();
-    renderizarPendientesAdmin();
-  } catch (err) {
-    console.error(err);
-    mostrarToast('Error al actualizar. Inténtalo de nuevo.', 'error');
-  }
-  ocultarSpinner();
+// Marcar como pagado desde Ajustes — usa el mismo modal de pago
+function marcarPendientePagado(id) {
+  abrirModalPagarDeuda(id);
 }
 window.marcarPendientePagado = marcarPendientePagado;
 

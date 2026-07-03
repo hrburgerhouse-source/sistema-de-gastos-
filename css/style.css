@@ -664,6 +664,28 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
 .fab:hover  { background: var(--primario-dark); transform: scale(1.08); }
 .fab:active { transform: scale(0.95); }
 
+.fab-secundario {
+  position: fixed;
+  bottom: 92px;
+  right: 20px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #ffc107;
+  color: #333;
+  font-size: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(255,193,7,0.55);
+  z-index: 90;
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+}
+.fab-secundario:hover  { transform: scale(1.08); background: #e0a800; }
+.fab-secundario:active { transform: scale(0.95); }
+
 /* ================================================================
    ESTADO VACÍO
    ================================================================ */
