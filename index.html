@@ -15,9 +15,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260703d">
+  <link rel="stylesheet" href="css/style.css?v=20260703e">
   <!-- Aplicar tema antes del render para evitar parpadeo -->
-  <script src="js/theme.js?v=20260703d"></script>
+  <script src="js/theme.js?v=20260703e"></script>
 </head>
 <body>
 
@@ -92,6 +92,7 @@
     <!-- NAVEGACIÓN POR PESTAÑAS -->
     <nav class="nav-tabs" id="navTabs" role="tablist">
       <button class="nav-tab activo" data-tab="gastos"   onclick="cambiarTab('gastos')"   role="tab" aria-selected="true">💸 Gastos</button>
+      <button class="nav-tab"        data-tab="ingresos" onclick="cambiarTab('ingresos')" role="tab" aria-selected="false">💰 Ingresos</button>
       <button class="nav-tab"        data-tab="resumen"  onclick="cambiarTab('resumen')"  role="tab" aria-selected="false">📊 Resumen</button>
       <button class="nav-tab"        data-tab="graficas" onclick="cambiarTab('graficas')" role="tab" aria-selected="false">📈 Gráficas</button>
       <button class="nav-tab tab-admin hidden" data-tab="ajustes"  onclick="cambiarTab('ajustes')"  role="tab" aria-selected="false">⚙️ Ajustes</button>
@@ -180,6 +181,72 @@
       </div>
 
       <!-- ======================================================
+           TAB: INGRESOS
+           ====================================================== -->
+      <div id="tabIngresos" class="tab-contenido hidden" role="tabpanel">
+
+        <!-- Filtros -->
+        <div class="filtros-panel">
+          <div class="filtros-busqueda">
+            <div class="campo">
+              <label for="filtroIngresoTexto">🔍 Buscar</label>
+              <input type="text" id="filtroIngresoTexto" placeholder="Descripción, categoría o notas…" oninput="aplicarFiltrosIngresosClienteSide()" autocomplete="off">
+            </div>
+          </div>
+          <div class="filtros-grid">
+            <div class="campo">
+              <label for="filtroIngresoPeriodo">Período</label>
+              <select id="filtroIngresoPeriodo" onchange="aplicarPeriodoRapidoIngresos()">
+                <option value="mes-actual">Este mes</option>
+                <option value="mes-anterior">Mes anterior</option>
+                <option value="ultimos-3m">Últimos 3 meses</option>
+                <option value="anio-actual">Este año</option>
+                <option value="todo">Todo el historial</option>
+                <option value="personalizado">Personalizado…</option>
+              </select>
+            </div>
+            <div class="campo">
+              <label for="filtroIngresoDesde">Desde</label>
+              <input type="date" id="filtroIngresoDesde" onchange="document.getElementById('filtroIngresoPeriodo').value='personalizado'">
+            </div>
+            <div class="campo">
+              <label for="filtroIngresoHasta">Hasta</label>
+              <input type="date" id="filtroIngresoHasta" onchange="document.getElementById('filtroIngresoPeriodo').value='personalizado'">
+            </div>
+            <div class="campo">
+              <label for="filtroIngresoCategoria">Categoría</label>
+              <select id="filtroIngresoCategoria" onchange="aplicarFiltrosIngresosClienteSide()">
+                <option value="">Todas</option>
+                <option value="Ventas del día">Ventas del día</option>
+                <option value="Delivery/Domicilios">Delivery/Domicilios</option>
+                <option value="Eventos y catering">Eventos y catering</option>
+                <option value="Otros ingresos">Otros ingresos</option>
+              </select>
+            </div>
+            <div class="campo">
+              <label for="filtroIngresoMetodo">Método de cobro</label>
+              <select id="filtroIngresoMetodo" onchange="aplicarFiltrosIngresosClienteSide()">
+                <option value="">Todos</option>
+                <option value="Efectivo">💵 Efectivo</option>
+                <option value="Transferencia">🏦 Transferencia</option>
+                <option value="Tarjeta">💳 Tarjeta</option>
+              </select>
+            </div>
+          </div>
+          <div class="filtros-acciones">
+            <button class="btn btn-secundario" onclick="limpiarFiltrosIngresos()">Limpiar</button>
+            <button class="btn btn-primario btn-ingreso" onclick="aplicarFiltrosIngresos()">🔄 Actualizar</button>
+          </div>
+        </div>
+
+        <!-- Lista de ingresos -->
+        <div id="listaIngresos"></div>
+
+        <!-- FAB: solo admin -->
+        <button class="fab fab-ingreso-fab hidden" id="fabNuevoIngreso" onclick="abrirModalNuevoIngreso()" title="Registrar nuevo ingreso" aria-label="Nuevo ingreso">+</button>
+      </div>
+
+      <!-- ======================================================
            TAB: RESUMEN
            ====================================================== -->
       <div id="tabResumen" class="tab-contenido hidden" role="tabpanel">
@@ -194,8 +261,13 @@
         </div>
 
         <div class="card">
-          <h3>🏷️ Desglose por categoría</h3>
+          <h3>💸 Gastos por categoría</h3>
           <div id="tablaCategoriasResumen"></div>
+        </div>
+
+        <div class="card">
+          <h3>💰 Ingresos por categoría</h3>
+          <div id="tablaIngresosResumen"></div>
         </div>
 
         <!-- Mis compras pendientes (visible para socios) -->
@@ -231,7 +303,7 @@
             </div>
           </div>
           <div class="card">
-            <h3>📊 Gastos últimos 6 meses</h3>
+            <h3>📊 Ingresos vs Gastos (6 meses)</h3>
             <div class="grafica-wrapper">
               <canvas id="graficaBarras"></canvas>
             </div>
@@ -602,6 +674,63 @@
   </div>
 
   <!-- ============================================================
+       MODAL: NUEVO / EDITAR INGRESO (solo admin)
+       ============================================================ -->
+  <div id="modalIngreso" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalIngresoTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="modalIngresoTitulo">Nuevo Ingreso</h2>
+        <button class="modal-cerrar" onclick="cerrarModalIngreso()" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="formIngreso" onsubmit="return false" novalidate>
+          <div class="form-grid">
+            <div class="campo">
+              <label for="ingresoFecha">Fecha</label>
+              <input type="date" id="ingresoFecha" required>
+            </div>
+            <div class="campo">
+              <label for="ingresoMetodoPago">Método de cobro</label>
+              <select id="ingresoMetodoPago" required>
+                <option value="">Seleccionar…</option>
+                <option value="Efectivo">💵 Efectivo</option>
+                <option value="Transferencia">🏦 Transferencia</option>
+                <option value="Tarjeta">💳 Tarjeta</option>
+              </select>
+            </div>
+            <div class="campo campo-completo">
+              <label for="ingresoCategoria">Categoría</label>
+              <select id="ingresoCategoria" required>
+                <option value="">Seleccionar…</option>
+                <option value="Ventas del día">Ventas del día</option>
+                <option value="Delivery/Domicilios">Delivery/Domicilios</option>
+                <option value="Eventos y catering">Eventos y catering</option>
+                <option value="Otros ingresos">Otros ingresos</option>
+              </select>
+            </div>
+            <div class="campo campo-completo">
+              <label for="ingresoDescripcion">Descripción</label>
+              <input type="text" id="ingresoDescripcion" placeholder="Ej: Ventas del sábado" required>
+            </div>
+            <div class="campo campo-completo campo-monto">
+              <label for="ingresoMonto">Monto (USD)</label>
+              <input type="number" id="ingresoMonto" placeholder="0.00" min="0.01" step="0.01" inputmode="decimal" required>
+            </div>
+            <div class="campo campo-completo">
+              <label for="ingresoNotas">Notas (opcional)</label>
+              <textarea id="ingresoNotas" placeholder="Información adicional…" rows="2"></textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModalIngreso()">Cancelar</button>
+        <button class="btn btn-primario btn-ingreso" onclick="guardarIngreso()">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
        SDKs Y LIBRERÍAS
        ============================================================ -->
   <!-- Firebase compat SDK v9.23.0 -->
@@ -616,8 +745,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
   <!-- App scripts -->
-  <script src="js/config.js?v=20260703d"></script>
-  <script src="js/app.js?v=20260703d"></script>
+  <script src="js/config.js?v=20260703e"></script>
+  <script src="js/app.js?v=20260703e"></script>
 
 </body>
 </html>

@@ -27,6 +27,10 @@
   --info:           #17a2b8;
   --skeleton-base:  #e9ecef;
   --skeleton-shine: #f8f9fa;
+  --ingreso:        #27ae60;
+  --ingreso-dark:   #1e8449;
+  --ingreso-light:  #2ecc71;
+  --ingreso-alpha:  rgba(39,174,96,0.12);
 }
 
 [data-tema="oscuro"] {
@@ -45,6 +49,9 @@
   --exito-light:    rgba(40,167,69,0.2);
   --skeleton-base:  #2a2a4a;
   --skeleton-shine: #1e1e3a;
+  --ingreso:        #2ecc71;
+  --ingreso-dark:   #27ae60;
+  --ingreso-alpha:  rgba(46,204,113,0.15);
 }
 
 /* ================================================================
@@ -565,6 +572,45 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
   font-weight: 400;
   font-size: 0.8rem;
   opacity: 0.85;
+}
+
+/* Variantes de ingreso */
+.total-ingreso-banner {
+  background: var(--ingreso) !important;
+}
+.ingreso-dia-total {
+  color: var(--ingreso) !important;
+}
+.ingreso-item {
+  border-left: 3px solid var(--ingreso);
+}
+.ingreso-categoria-badge {
+  background: var(--ingreso-alpha) !important;
+  color: var(--ingreso-dark) !important;
+}
+.ingreso-monto {
+  color: var(--ingreso) !important;
+}
+.stat-card-ingreso .stat-valor {
+  color: var(--ingreso);
+}
+.barra-ingreso {
+  background: var(--ingreso) !important;
+}
+.btn-ingreso {
+  background: var(--ingreso) !important;
+  border-color: var(--ingreso) !important;
+}
+.btn-ingreso:hover {
+  background: var(--ingreso-dark) !important;
+  border-color: var(--ingreso-dark) !important;
+}
+.fab-ingreso-fab {
+  background: var(--ingreso) !important;
+  box-shadow: 0 4px 16px rgba(39,174,96,0.4) !important;
+}
+.fab-ingreso-fab:hover {
+  background: var(--ingreso-dark) !important;
 }
 
 .grupo-dia {

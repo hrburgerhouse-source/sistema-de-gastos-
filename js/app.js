@@ -10,22 +10,26 @@ const db = firebase.firestore();
 // ESTADO GLOBAL
 // ================================================================
 const Estado = {
-  usuario:      null,   // { rol: 'socio1'|'socio2'|'admin', nombre: string }
+  usuario:      null,
   tabActual:    'gastos',
-  gastos:       [],     // gastos cargados con los filtros actuales
-  categorias:   [],     // categorías cargadas de Firestore
-  pins:         {},     // PINs actuales
-  pinIngresado: '',     // PIN en curso de ingreso en la pantalla
+  gastos:       [],
+  ingresos:     [],
+  categorias:   [],
+  pins:         {},
+  pinIngresado: '',
   gastoEditandoId: null,
   gastoAEliminarId: null,
+  ingresoEditandoId: null,
+  ingresoAEliminarId: null,
   categoriaEditandoId: null,
   pinCambiandoRol: null,
   pinResetandoRol: null,
   pendienteAPagarId: null,
   nombreEditandoRol: null,
   nombres: {},
-  gastosResumenActual: [],  // gastos del período en la tab Resumen
-  pendientes:   [],         // compras pendientes de pago
+  gastosResumenActual: [],
+  ingresosResumenActual: [],
+  pendientes:   [],
   graficas: { dona: null, barras: null, linea: null },
 };
 
@@ -190,6 +194,10 @@ async function iniciarSesion(rol) {
   const fabPendiente = document.getElementById('fabPendiente');
   if (fabPendiente) fabPendiente.classList.toggle('hidden', rol === 'admin');
 
+  // FAB ingresos solo para admin
+  const fabIngreso = document.getElementById('fabNuevoIngreso');
+  if (fabIngreso) fabIngreso.classList.toggle('hidden', rol !== 'admin');
+
   document.getElementById('pantallaPin').classList.add('hidden');
   document.getElementById('appPrincipal').classList.remove('hidden');
 
@@ -205,7 +213,9 @@ async function iniciarSesion(rol) {
 function cerrarSesion() {
   Estado.usuario = null;
   Estado.gastos = [];
+  Estado.ingresos = [];
   Estado.gastosResumenActual = [];
+  Estado.ingresosResumenActual = [];
   localStorage.removeItem('hr-gastos-usuario');
 
   // Destruir gráficas
@@ -216,9 +226,11 @@ function cerrarSesion() {
   document.getElementById('appPrincipal').classList.add('hidden');
   document.getElementById('pantallaPin').classList.remove('hidden');
 
-  // Ocultar FAB de pendientes
+  // Ocultar FABs
   const fabPendiente = document.getElementById('fabPendiente');
   if (fabPendiente) fabPendiente.classList.add('hidden');
+  const fabIngreso = document.getElementById('fabNuevoIngreso');
+  if (fabIngreso) fabIngreso.classList.add('hidden');
 
   // Resetear PIN y volver al tab Gastos
   Estado.pinIngresado = '';
@@ -236,6 +248,7 @@ window.cerrarSesion = cerrarSesion;
 
 function cambiarTab(tab) {
   cambiarTabSilencioso(tab);
+  if (tab === 'ingresos') cargarIngresosMesActual();
   if (tab === 'resumen')  cargarResumen();
   if (tab === 'graficas') cargarGraficas();
   if (tab === 'ajustes')  cargarAjustes();
@@ -689,7 +702,8 @@ window.guardarGasto = guardarGasto;
 // ================================================================
 
 function confirmarEliminarGasto(id) {
-  Estado.gastoAEliminarId = id;
+  Estado.gastoAEliminarId   = id;
+  Estado.ingresoAEliminarId = null;
   const g = Estado.gastos.find(x => x.id === id);
   document.getElementById('confirmarMensaje').innerHTML =
     `¿Deseas eliminar el gasto <strong>"${g?.descripcion || ''}"</strong> por <strong>${formatMonto(g?.monto)}</strong>?<br><br>Esta acción no se puede deshacer.`;
@@ -697,19 +711,37 @@ function confirmarEliminarGasto(id) {
 }
 window.confirmarEliminarGasto = confirmarEliminarGasto;
 
+function confirmarEliminarIngreso(id) {
+  Estado.ingresoAEliminarId = id;
+  Estado.gastoAEliminarId   = null;
+  const i = Estado.ingresos.find(x => x.id === id);
+  document.getElementById('confirmarMensaje').innerHTML =
+    `¿Deseas eliminar el ingreso <strong>"${i?.descripcion || ''}"</strong> por <strong>${formatMonto(i?.monto)}</strong>?<br><br>Esta acción no se puede deshacer.`;
+  abrirModal('modalConfirmar');
+}
+window.confirmarEliminarIngreso = confirmarEliminarIngreso;
+
 async function ejecutarEliminar() {
-  if (!Estado.gastoAEliminarId) return;
+  const esIngreso = !!Estado.ingresoAEliminarId;
+  const id = esIngreso ? Estado.ingresoAEliminarId : Estado.gastoAEliminarId;
+  if (!id) return;
+
   mostrarSpinner();
   try {
-    await db.collection('gastos').doc(Estado.gastoAEliminarId).delete();
-    mostrarToast('Gasto eliminado.', 'exito');
+    await db.collection(esIngreso ? 'ingresos' : 'gastos').doc(id).delete();
+    mostrarToast(`${esIngreso ? 'Ingreso' : 'Gasto'} eliminado.`, 'exito');
     cerrarModal('modalConfirmar');
-    await cargarGastosConFiltros();
+    if (esIngreso) {
+      Estado.ingresoAEliminarId = null;
+      await cargarIngresosConFiltros();
+    } else {
+      Estado.gastoAEliminarId = null;
+      await cargarGastosConFiltros();
+    }
   } catch (err) {
     console.error(err);
     mostrarToast('Error al eliminar. Inténtalo de nuevo.', 'error');
   }
-  Estado.gastoAEliminarId = null;
   ocultarSpinner();
 }
 window.ejecutarEliminar = ejecutarEliminar;
@@ -725,27 +757,30 @@ async function cargarResumen() {
   mostrarSkeletonResumen();
 
   try {
-    const [snapActual, snapAnterior] = await Promise.all([
+    const ant = mesAnterior(mes, anio);
+    const [snapActual, snapAnterior, snapIngresos] = await Promise.all([
       db.collection('gastos')
         .where('fecha', '>=', primerDiaMes(mes, anio))
         .where('fecha', '<=', ultimoDiaMes(mes, anio))
         .orderBy('fecha').get(),
-      (() => {
-        const ant = mesAnterior(mes, anio);
-        return db.collection('gastos')
-          .where('fecha', '>=', primerDiaMes(ant.mes, ant.anio))
-          .where('fecha', '<=', ultimoDiaMes(ant.mes, ant.anio))
-          .orderBy('fecha').get();
-      })()
+      db.collection('gastos')
+        .where('fecha', '>=', primerDiaMes(ant.mes, ant.anio))
+        .where('fecha', '<=', ultimoDiaMes(ant.mes, ant.anio))
+        .orderBy('fecha').get(),
+      db.collection('ingresos')
+        .where('fecha', '>=', primerDiaMes(mes, anio))
+        .where('fecha', '<=', ultimoDiaMes(mes, anio))
+        .orderBy('fecha').get()
     ]);
 
-    const gastosActuales  = snapActual.docs.map(d => ({ id: d.id, ...d.data() }));
+    const gastosActuales   = snapActual.docs.map(d => ({ id: d.id, ...d.data() }));
     const gastosAnteriores = snapAnterior.docs.map(d => ({ id: d.id, ...d.data() }));
+    const ingresosActuales = snapIngresos.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    Estado.gastosResumenActual = gastosActuales;
-    renderizarResumen(gastosActuales, gastosAnteriores, mes, anio);
+    Estado.gastosResumenActual   = gastosActuales;
+    Estado.ingresosResumenActual = ingresosActuales;
+    renderizarResumen(gastosActuales, gastosAnteriores, ingresosActuales, mes, anio);
 
-    // Cargar pendientes del socio (si no es admin)
     if (Estado.usuario?.rol !== 'admin') {
       await cargarPendientes();
       renderizarMisPendientes();
@@ -763,82 +798,109 @@ function mostrarSkeletonResumen() {
   document.getElementById('tablaCategoriasResumen').innerHTML = '';
 }
 
-function renderizarResumen(actuales, anteriores, mes, anio) {
-  const totalActual   = actuales.reduce((s, g) => s + (g.monto || 0), 0);
+function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
+  const totalGastos   = actuales.reduce((s, g) => s + (g.monto || 0), 0);
+  const totalIngresos = ingresos.reduce((s, i) => s + (i.monto || 0), 0);
+  const gananciaNeta  = totalIngresos - totalGastos;
   const totalAnterior = anteriores.reduce((s, g) => s + (g.monto || 0), 0);
-  const variacion     = totalAnterior > 0 ? (totalActual - totalAnterior) / totalAnterior * 100 : 0;
+  const variacion     = totalAnterior > 0 ? (totalGastos - totalAnterior) / totalAnterior * 100 : 0;
 
-  // Promedio: total / días del mes que han pasado (o días del mes si ya terminó)
   const hoyDate  = new Date();
   const diasMes  = new Date(anio, mes, 0).getDate();
   const esActual = hoyDate.getFullYear() === anio && hoyDate.getMonth() + 1 === mes;
   const diasBase = esActual ? hoyDate.getDate() : diasMes;
-  const promedio = diasBase > 0 ? totalActual / diasBase : 0;
+  const promedio = diasBase > 0 ? totalGastos / diasBase : 0;
 
-  // Por categoría
-  const porCat = {};
-  actuales.forEach(g => { porCat[g.categoria] = (porCat[g.categoria] || 0) + (g.monto || 0); });
-  const catOrdenadas = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
-  const mayorCat = catOrdenadas[0];
+  const porCatGastos   = {};
+  actuales.forEach(g => { porCatGastos[g.categoria] = (porCatGastos[g.categoria] || 0) + (g.monto || 0); });
+  const catGastosOrd = Object.entries(porCatGastos).sort((a, b) => b[1] - a[1]);
+  const mayorCat     = catGastosOrd[0];
 
-  const ant = mesAnterior(mes, anio);
-  const varClase  = variacion > 0 ? 'stat-negativo' : variacion < 0 ? 'stat-positivo' : '';
-  const varIcono  = variacion > 0 ? '▲' : variacion < 0 ? '▼' : '–';
-  const varTexto  = variacion !== 0 ? `${varIcono} ${Math.abs(variacion).toFixed(1)}%` : '– Sin cambio';
+  const porCatIngresos = {};
+  ingresos.forEach(i => { porCatIngresos[i.categoria] = (porCatIngresos[i.categoria] || 0) + (i.monto || 0); });
+  const catIngresosOrd = Object.entries(porCatIngresos).sort((a, b) => b[1] - a[1]);
+
+  const ant      = mesAnterior(mes, anio);
+  const varClase = variacion > 0 ? 'stat-negativo' : variacion < 0 ? 'stat-positivo' : '';
+  const varIcono = variacion > 0 ? '▲' : variacion < 0 ? '▼' : '–';
+  const varTexto = variacion !== 0 ? `${varIcono} ${Math.abs(variacion).toFixed(1)}%` : '– Sin cambio';
 
   document.getElementById('statsGrid').innerHTML = `
-    <div class="stat-card">
-      <div class="stat-label">${nombreMes(mes)} ${anio}</div>
-      <div class="stat-valor">${formatMonto(totalActual)}</div>
+    <div class="stat-card stat-card-ingreso">
+      <div class="stat-label">💰 Ingresos — ${nombreMes(mes)}</div>
+      <div class="stat-valor">${formatMonto(totalIngresos)}</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">${nombreMes(ant.mes)} ${ant.anio}</div>
-      <div class="stat-valor">${formatMonto(totalAnterior)}</div>
+      <div class="stat-label">💸 Gastos — ${nombreMes(mes)}</div>
+      <div class="stat-valor">${formatMonto(totalGastos)}</div>
+    </div>
+    <div class="stat-card ${gananciaNeta >= 0 ? 'stat-positivo' : 'stat-negativo'}">
+      <div class="stat-label">Ganancia neta</div>
+      <div class="stat-valor">${formatMonto(gananciaNeta)}</div>
     </div>
     <div class="stat-card ${varClase}">
-      <div class="stat-label">Variación vs mes anterior</div>
+      <div class="stat-label">Variación gastos vs ${nombreMes(ant.mes)}</div>
       <div class="stat-valor">${varTexto}</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Promedio diario</div>
+      <div class="stat-label">Promedio diario gastos</div>
       <div class="stat-valor">${formatMonto(promedio)}</div>
     </div>
     ${mayorCat ? `
     <div class="stat-card stat-card-wide">
       <div class="stat-label">Categoría con mayor gasto</div>
       <div class="stat-valor">${mayorCat[0]}</div>
-      <div class="stat-sublabel">${formatMonto(mayorCat[1])} · ${totalActual > 0 ? (mayorCat[1]/totalActual*100).toFixed(1) : 0}% del total</div>
+      <div class="stat-sublabel">${formatMonto(mayorCat[1])} · ${totalGastos > 0 ? (mayorCat[1]/totalGastos*100).toFixed(1) : 0}% del total</div>
     </div>` : ''}`;
 
-  if (!catOrdenadas.length) {
+  // Tabla gastos por categoría
+  if (!catGastosOrd.length) {
     document.getElementById('tablaCategoriasResumen').innerHTML =
       '<p style="color:var(--texto-muted);font-size:.88rem;text-align:center;padding:20px">Sin gastos en este período</p>';
-    return;
-  }
-
-  const filas = catOrdenadas.map(([cat, monto]) => {
-    const pct = totalActual > 0 ? (monto / totalActual * 100) : 0;
-    return `
-      <tr>
+  } else {
+    const filasGastos = catGastosOrd.map(([cat, monto]) => {
+      const pct = totalGastos > 0 ? (monto / totalGastos * 100) : 0;
+      return `<tr>
         <td>${cat}</td>
         <td style="font-weight:600;white-space:nowrap">${formatMonto(monto)}</td>
-        <td>
-          <div class="barra-progreso-wrapper">
-            <div class="barra-progreso-bg">
-              <div class="barra-progreso" style="width:${pct}%"></div>
-            </div>
-            <span style="min-width:38px;font-size:.8rem">${pct.toFixed(1)}%</span>
-          </div>
-        </td>
-      </tr>`;
-  }).join('');
+        <td><div class="barra-progreso-wrapper">
+          <div class="barra-progreso-bg"><div class="barra-progreso" style="width:${pct}%"></div></div>
+          <span style="min-width:38px;font-size:.8rem">${pct.toFixed(1)}%</span>
+        </div></td></tr>`;
+    }).join('');
+    document.getElementById('tablaCategoriasResumen').innerHTML = `
+      <table class="tabla-resumen">
+        <thead><tr><th>Categoría</th><th>Monto</th><th>% del total</th></tr></thead>
+        <tbody>${filasGastos}</tbody>
+        <tfoot><tr><td><strong>Total</strong></td><td colspan="2"><strong>${formatMonto(totalGastos)}</strong></td></tr></tfoot>
+      </table>`;
+  }
 
-  document.getElementById('tablaCategoriasResumen').innerHTML = `
-    <table class="tabla-resumen">
-      <thead><tr><th>Categoría</th><th>Monto</th><th>% del total</th></tr></thead>
-      <tbody>${filas}</tbody>
-      <tfoot><tr><td><strong>Total</strong></td><td colspan="2"><strong>${formatMonto(totalActual)}</strong></td></tr></tfoot>
-    </table>`;
+  // Tabla ingresos por categoría
+  const tablaIngresos = document.getElementById('tablaIngresosResumen');
+  if (tablaIngresos) {
+    if (!catIngresosOrd.length) {
+      tablaIngresos.innerHTML =
+        '<p style="color:var(--texto-muted);font-size:.88rem;text-align:center;padding:20px">Sin ingresos en este período</p>';
+    } else {
+      const filasIngresos = catIngresosOrd.map(([cat, monto]) => {
+        const pct = totalIngresos > 0 ? (monto / totalIngresos * 100) : 0;
+        return `<tr>
+          <td>${cat}</td>
+          <td style="font-weight:600;white-space:nowrap;color:var(--ingreso)">${formatMonto(monto)}</td>
+          <td><div class="barra-progreso-wrapper">
+            <div class="barra-progreso-bg"><div class="barra-progreso barra-ingreso" style="width:${pct}%"></div></div>
+            <span style="min-width:38px;font-size:.8rem">${pct.toFixed(1)}%</span>
+          </div></td></tr>`;
+      }).join('');
+      tablaIngresos.innerHTML = `
+        <table class="tabla-resumen">
+          <thead><tr><th>Categoría</th><th>Monto</th><th>% del total</th></tr></thead>
+          <tbody>${filasIngresos}</tbody>
+          <tfoot><tr><td><strong>Total</strong></td><td colspan="2" style="color:var(--ingreso)"><strong>${formatMonto(totalIngresos)}</strong></td></tr></tfoot>
+        </table>`;
+    }
+  }
 }
 
 // ================================================================
@@ -849,26 +911,34 @@ async function cargarGraficas() {
   const mes  = parseInt(document.getElementById('graficaMes').value);
   const anio = parseInt(document.getElementById('graficaAnio').value);
 
+  const inicio6m = (() => {
+    const d = new Date(anio, mes - 7, 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+  })();
+  const fin6m = ultimoDiaMes(mes, anio);
+
   try {
-    // Mes seleccionado
-    const snapMes = await db.collection('gastos')
-      .where('fecha', '>=', primerDiaMes(mes, anio))
-      .where('fecha', '<=', ultimoDiaMes(mes, anio))
-      .orderBy('fecha').get();
-    const gastosMes = snapMes.docs.map(d => d.data());
+    const [snapGastosMes, snapGastos6m, snapIngresos6m] = await Promise.all([
+      db.collection('gastos')
+        .where('fecha', '>=', primerDiaMes(mes, anio))
+        .where('fecha', '<=', fin6m)
+        .orderBy('fecha').get(),
+      db.collection('gastos')
+        .where('fecha', '>=', inicio6m)
+        .where('fecha', '<=', fin6m)
+        .orderBy('fecha').get(),
+      db.collection('ingresos')
+        .where('fecha', '>=', inicio6m)
+        .where('fecha', '<=', fin6m)
+        .orderBy('fecha').get()
+    ]);
 
-    // Últimos 6 meses (para barras)
-    const inicio6m = (() => {
-      const d = new Date(anio, mes - 7, 1);
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
-    })();
-    const snap6m = await db.collection('gastos')
-      .where('fecha', '>=', inicio6m)
-      .where('fecha', '<=', ultimoDiaMes(mes, anio))
-      .orderBy('fecha').get();
-    const gastos6m = snap6m.docs.map(d => d.data());
-
-    renderizarGraficas(gastosMes, gastos6m, mes, anio);
+    renderizarGraficas(
+      snapGastosMes.docs.map(d => d.data()),
+      snapGastos6m.docs.map(d => d.data()),
+      snapIngresos6m.docs.map(d => d.data()),
+      mes, anio
+    );
   } catch (err) {
     console.error(err);
     mostrarToast('Error al cargar gráficas.', 'error');
@@ -883,7 +953,7 @@ function colorMutedGrafica() {
   return getComputedStyle(document.documentElement).getPropertyValue('--texto-muted').trim() || '#666';
 }
 
-function renderizarGraficas(gastosMes, gastos6m, mes, anio) {
+function renderizarGraficas(gastosMes, gastos6m, ingresos6m, mes, anio) {
   // Destruir instancias anteriores
   Object.keys(Estado.graficas).forEach(k => {
     if (Estado.graficas[k]) { Estado.graficas[k].destroy(); Estado.graficas[k] = null; }
@@ -921,40 +991,58 @@ function renderizarGraficas(gastosMes, gastos6m, mes, anio) {
     }
   });
 
-  // === BARRAS: últimos 6 meses ===
-  const mesesData = {};
+  // === BARRAS: ingresos vs gastos últimos 6 meses ===
+  const mesesGastos   = {};
+  const mesesIngresos = {};
   for (let i = 5; i >= 0; i--) {
     const d = new Date(anio, mes - 1 - i, 1);
     const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    mesesData[k] = 0;
+    mesesGastos[k]   = 0;
+    mesesIngresos[k] = 0;
   }
   gastos6m.forEach(g => {
     const k = g.fecha?.substring(0, 7);
-    if (k in mesesData) mesesData[k] += (g.monto || 0);
+    if (k in mesesGastos) mesesGastos[k] += (g.monto || 0);
+  });
+  ingresos6m.forEach(i => {
+    const k = i.fecha?.substring(0, 7);
+    if (k in mesesIngresos) mesesIngresos[k] += (i.monto || 0);
+  });
+
+  const labelsBarras = Object.keys(mesesGastos).map(k => {
+    const [y, m] = k.split('-');
+    return `${nombreMes(parseInt(m)).substring(0,3)} ${y}`;
   });
 
   Estado.graficas.barras = new Chart(document.getElementById('graficaBarras'), {
     type: 'bar',
     data: {
-      labels: Object.keys(mesesData).map(k => {
-        const [y, m] = k.split('-');
-        return `${nombreMes(parseInt(m)).substring(0,3)} ${y}`;
-      }),
-      datasets: [{
-        label: 'Gastos',
-        data: Object.values(mesesData),
-        backgroundColor: 'rgba(255,107,53,0.8)',
-        borderColor: '#FF6B35',
-        borderWidth: 1.5,
-        borderRadius: 6
-      }]
+      labels: labelsBarras,
+      datasets: [
+        {
+          label: 'Ingresos',
+          data: Object.values(mesesIngresos),
+          backgroundColor: 'rgba(39,174,96,0.8)',
+          borderColor: '#27ae60',
+          borderWidth: 1.5,
+          borderRadius: 6
+        },
+        {
+          label: 'Gastos',
+          data: Object.values(mesesGastos),
+          backgroundColor: 'rgba(255,107,53,0.8)',
+          borderColor: '#FF6B35',
+          borderWidth: 1.5,
+          borderRadius: 6
+        }
+      ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: true,
       plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ` ${formatMonto(ctx.parsed.y)}` } }
+        legend: { display: true, labels: { font: { size: 11 }, color: textoColor } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${formatMonto(ctx.parsed.y)}` } }
       },
       scales: {
         x: { ticks: { color: mutedColor, font: { size: 11 } }, grid: { display: false } },
@@ -1774,6 +1862,274 @@ async function eliminarPendiente(id) {
   ocultarSpinner();
 }
 window.eliminarPendiente = eliminarPendiente;
+
+// ================================================================
+// TAB: INGRESOS
+// ================================================================
+
+const CATEGORIAS_INGRESOS = [
+  'Ventas del día',
+  'Delivery/Domicilios',
+  'Eventos y catering',
+  'Otros ingresos'
+];
+
+async function cargarIngresosMesActual() {
+  const ahora = new Date();
+  const mes   = ahora.getMonth() + 1;
+  const anio  = ahora.getFullYear();
+
+  document.getElementById('filtroIngresoDesde').value = primerDiaMes(mes, anio);
+  document.getElementById('filtroIngresoHasta').value = ultimoDiaMes(mes, anio);
+  const sel = document.getElementById('filtroIngresoPeriodo');
+  if (sel) sel.value = 'mes-actual';
+
+  await cargarIngresosConFiltros();
+}
+
+async function cargarIngresosConFiltros() {
+  const desde = document.getElementById('filtroIngresoDesde').value;
+  const hasta = document.getElementById('filtroIngresoHasta').value;
+
+  mostrarSkeletonIngresos();
+  try {
+    let query = db.collection('ingresos').orderBy('fecha', 'desc');
+    if (desde) query = query.where('fecha', '>=', desde);
+    if (hasta) query = query.where('fecha', '<=', hasta);
+
+    const snap = await query.get();
+    let ingresos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    ingresos.sort((a, b) => {
+      if (b.fecha !== a.fecha) return b.fecha.localeCompare(a.fecha);
+      const ta = a.timestamp?.seconds || 0;
+      const tb = b.timestamp?.seconds || 0;
+      return tb - ta;
+    });
+
+    Estado.ingresos = ingresos;
+    aplicarFiltrosIngresosClienteSide();
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al cargar los ingresos.', 'error');
+    renderizarListaIngresos([]);
+  }
+}
+
+function aplicarFiltrosIngresosClienteSide() {
+  if (!Estado.ingresos) return;
+  const categoria = document.getElementById('filtroIngresoCategoria').value;
+  const metodo    = document.getElementById('filtroIngresoMetodo')?.value || '';
+  const texto     = (document.getElementById('filtroIngresoTexto')?.value || '').trim().toLowerCase();
+
+  let ingresos = Estado.ingresos;
+  if (categoria) ingresos = ingresos.filter(i => i.categoria === categoria);
+  if (metodo)    ingresos = ingresos.filter(i => i.metodoPago === metodo);
+  if (texto) {
+    ingresos = ingresos.filter(i =>
+      (i.descripcion || '').toLowerCase().includes(texto) ||
+      (i.categoria   || '').toLowerCase().includes(texto) ||
+      (i.notas       || '').toLowerCase().includes(texto)
+    );
+  }
+  renderizarListaIngresos(ingresos);
+}
+window.aplicarFiltrosIngresosClienteSide = aplicarFiltrosIngresosClienteSide;
+
+function aplicarFiltrosIngresos() { cargarIngresosConFiltros(); }
+window.aplicarFiltrosIngresos = aplicarFiltrosIngresos;
+
+function limpiarFiltrosIngresos() {
+  const ahora = new Date();
+  const mes   = ahora.getMonth() + 1;
+  const anio  = ahora.getFullYear();
+  document.getElementById('filtroIngresoDesde').value     = primerDiaMes(mes, anio);
+  document.getElementById('filtroIngresoHasta').value     = ultimoDiaMes(mes, anio);
+  document.getElementById('filtroIngresoCategoria').value = '';
+  const metodoEl = document.getElementById('filtroIngresoMetodo');
+  if (metodoEl) metodoEl.value = '';
+  const textoEl  = document.getElementById('filtroIngresoTexto');
+  if (textoEl) textoEl.value = '';
+  const periodoEl = document.getElementById('filtroIngresoPeriodo');
+  if (periodoEl) periodoEl.value = 'mes-actual';
+  cargarIngresosConFiltros();
+}
+window.limpiarFiltrosIngresos = limpiarFiltrosIngresos;
+
+function aplicarPeriodoRapidoIngresos() {
+  const val = document.getElementById('filtroIngresoPeriodo').value;
+  if (!val || val === 'personalizado') return;
+
+  const ahora = new Date();
+  const mes   = ahora.getMonth() + 1;
+  const anio  = ahora.getFullYear();
+  let desde, hasta;
+
+  if (val === 'mes-actual') {
+    desde = primerDiaMes(mes, anio);
+    hasta = ultimoDiaMes(mes, anio);
+  } else if (val === 'mes-anterior') {
+    const ant = mesAnterior(mes, anio);
+    desde = primerDiaMes(ant.mes, ant.anio);
+    hasta = ultimoDiaMes(ant.mes, ant.anio);
+  } else if (val === 'ultimos-3m') {
+    const d = new Date(anio, mes - 4, 1);
+    desde = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+    hasta = ultimoDiaMes(mes, anio);
+  } else if (val === 'anio-actual') {
+    desde = `${anio}-01-01`;
+    hasta = `${anio}-12-31`;
+  } else if (val === 'todo') {
+    desde = '2020-01-01';
+    hasta = '2099-12-31';
+  }
+
+  if (desde) document.getElementById('filtroIngresoDesde').value = desde;
+  if (hasta) document.getElementById('filtroIngresoHasta').value = hasta;
+  cargarIngresosConFiltros();
+}
+window.aplicarPeriodoRapidoIngresos = aplicarPeriodoRapidoIngresos;
+
+function mostrarSkeletonIngresos() {
+  document.getElementById('listaIngresos').innerHTML =
+    Array(4).fill('<div class="skeleton skeleton-gasto"></div>').join('');
+}
+
+function renderizarListaIngresos(ingresos) {
+  const lista   = document.getElementById('listaIngresos');
+  const esAdmin = Estado.usuario?.rol === 'admin';
+
+  if (!ingresos.length) {
+    lista.innerHTML = `
+      <div class="estado-vacio">
+        <div class="estado-vacio-icono">💰</div>
+        <p>No hay ingresos en este período</p>
+        ${esAdmin ? `<button class="btn btn-primario btn-ingreso" onclick="abrirModalNuevoIngreso()">+ Registrar primer ingreso</button>` : ''}
+      </div>`;
+    return;
+  }
+
+  const porFecha = {};
+  ingresos.forEach(i => { (porFecha[i.fecha] = porFecha[i.fecha] || []).push(i); });
+  const fechas = Object.keys(porFecha).sort((a, b) => b.localeCompare(a));
+  const totalGeneral = ingresos.reduce((s, i) => s + (i.monto || 0), 0);
+
+  let html = `
+    <div class="total-general-banner total-ingreso-banner">
+      <span>Total ingresos <span class="filtro-conteo">· ${ingresos.length} registro${ingresos.length !== 1 ? 's' : ''}</span></span>
+      <strong>${formatMonto(totalGeneral)}</strong>
+    </div>`;
+
+  fechas.forEach(fecha => {
+    const del      = porFecha[fecha];
+    const totalDia = del.reduce((s, i) => s + (i.monto || 0), 0);
+    html += `
+      <div class="grupo-dia">
+        <div class="grupo-dia-header">
+          <span class="grupo-dia-fecha">${formatFecha(fecha)}</span>
+          <span class="grupo-dia-total ingreso-dia-total">${formatMonto(totalDia)}</span>
+        </div>
+        ${del.map(i => tarjetaIngreso(i, esAdmin)).join('')}
+      </div>`;
+  });
+
+  lista.innerHTML = html;
+}
+
+function tarjetaIngreso(ingreso, esAdmin) {
+  const acciones = esAdmin ? `
+    <div class="gasto-acciones">
+      <button class="btn-accion btn-editar"   onclick="editarIngreso('${ingreso.id}')"            title="Editar">✏️</button>
+      <button class="btn-accion btn-eliminar"  onclick="confirmarEliminarIngreso('${ingreso.id}')" title="Eliminar">🗑️</button>
+    </div>` : '';
+
+  return `
+    <div class="gasto-item ingreso-item" data-id="${ingreso.id}">
+      <div class="gasto-izquierda">
+        <div class="gasto-categoria-badge ingreso-categoria-badge">${ingreso.categoria || '—'}</div>
+        <div class="gasto-descripcion">${ingreso.descripcion || '—'}</div>
+        <div class="gasto-meta">
+          <span class="gasto-metodo">${iconoMetodoPago(ingreso.metodoPago)} ${ingreso.metodoPago || ''}</span>
+          ${ingreso.notas ? `<span class="gasto-notas">· 📝 ${ingreso.notas}</span>` : ''}
+        </div>
+      </div>
+      <div class="gasto-derecha">
+        <div class="gasto-monto ingreso-monto">${formatMonto(ingreso.monto)}</div>
+        ${acciones}
+      </div>
+    </div>`;
+}
+
+// --- CRUD ingresos (solo admin) ---
+
+function abrirModalNuevoIngreso() {
+  Estado.ingresoEditandoId = null;
+  document.getElementById('modalIngresoTitulo').textContent = 'Nuevo Ingreso';
+  document.getElementById('formIngreso').reset();
+  document.getElementById('ingresoFecha').value = hoy();
+  abrirModal('modalIngreso');
+}
+window.abrirModalNuevoIngreso = abrirModalNuevoIngreso;
+
+function editarIngreso(id) {
+  const ingreso = Estado.ingresos.find(x => x.id === id);
+  if (!ingreso) return;
+  Estado.ingresoEditandoId = id;
+  document.getElementById('modalIngresoTitulo').textContent = 'Editar Ingreso';
+  document.getElementById('ingresoFecha').value       = ingreso.fecha       || hoy();
+  document.getElementById('ingresoCategoria').value   = ingreso.categoria   || '';
+  document.getElementById('ingresoDescripcion').value = ingreso.descripcion || '';
+  document.getElementById('ingresoMonto').value       = ingreso.monto       || '';
+  document.getElementById('ingresoMetodoPago').value  = ingreso.metodoPago  || '';
+  document.getElementById('ingresoNotas').value       = ingreso.notas       || '';
+  abrirModal('modalIngreso');
+}
+window.editarIngreso = editarIngreso;
+
+function cerrarModalIngreso() {
+  cerrarModal('modalIngreso');
+  Estado.ingresoEditandoId = null;
+}
+window.cerrarModalIngreso = cerrarModalIngreso;
+
+async function guardarIngreso() {
+  const fecha       = document.getElementById('ingresoFecha').value;
+  const categoria   = document.getElementById('ingresoCategoria').value;
+  const descripcion = document.getElementById('ingresoDescripcion').value.trim();
+  const monto       = parseFloat(document.getElementById('ingresoMonto').value);
+  const metodoPago  = document.getElementById('ingresoMetodoPago').value;
+  const notas       = document.getElementById('ingresoNotas').value.trim();
+
+  if (!fecha)                      return mostrarToast('Selecciona una fecha.', 'advertencia');
+  if (!categoria)                  return mostrarToast('Selecciona una categoría.', 'advertencia');
+  if (!descripcion)                return mostrarToast('Ingresa una descripción.', 'advertencia');
+  if (isNaN(monto) || monto <= 0)  return mostrarToast('El monto debe ser mayor a $0.00.', 'advertencia');
+  if (!metodoPago)                 return mostrarToast('Selecciona el método de cobro.', 'advertencia');
+
+  const datos = {
+    fecha, categoria, descripcion, monto, metodoPago, notas,
+    registradoPor: Estado.usuario.rol,
+    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  mostrarSpinner();
+  try {
+    if (Estado.ingresoEditandoId) {
+      await db.collection('ingresos').doc(Estado.ingresoEditandoId).update(datos);
+      mostrarToast('Ingreso actualizado correctamente.', 'exito');
+    } else {
+      await db.collection('ingresos').add(datos);
+      mostrarToast('Ingreso registrado correctamente.', 'exito');
+    }
+    cerrarModalIngreso();
+    await cargarIngresosConFiltros();
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al guardar. Inténtalo de nuevo.', 'error');
+  }
+  ocultarSpinner();
+}
+window.guardarIngreso = guardarIngreso;
 
 // ================================================================
 // INICIALIZACIÓN DE SELECTORES DE FECHA
