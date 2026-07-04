@@ -37,6 +37,12 @@ const NOMBRES_DEFAULT = {
 };
 
 // ================================================================
+// COMISIÓN DE TARJETA
+// Porcentaje que cobra el procesador de pagos (ej: 2.74%)
+// ================================================================
+const COMISION_TARJETA = 0.0274;
+
+// ================================================================
 // CATEGORÍAS POR DEFECTO
 // Se crean en Firestore si la colección "categorias" está vacía
 // ================================================================

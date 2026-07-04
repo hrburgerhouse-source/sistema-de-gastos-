@@ -15,9 +15,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260703e">
+  <link rel="stylesheet" href="css/style.css?v=20260703f">
   <!-- Aplicar tema antes del render para evitar parpadeo -->
-  <script src="js/theme.js?v=20260703e"></script>
+  <script src="js/theme.js?v=20260703f"></script>
 </head>
 <body>
 
@@ -691,7 +691,7 @@
             </div>
             <div class="campo">
               <label for="ingresoMetodoPago">Método de cobro</label>
-              <select id="ingresoMetodoPago" required>
+              <select id="ingresoMetodoPago" required onchange="actualizarComisionTarjeta()">
                 <option value="">Seleccionar…</option>
                 <option value="Efectivo">💵 Efectivo</option>
                 <option value="Transferencia">🏦 Transferencia</option>
@@ -713,8 +713,25 @@
               <input type="text" id="ingresoDescripcion" placeholder="Ej: Ventas del sábado" required>
             </div>
             <div class="campo campo-completo campo-monto">
-              <label for="ingresoMonto">Monto (USD)</label>
-              <input type="number" id="ingresoMonto" placeholder="0.00" min="0.01" step="0.01" inputmode="decimal" required>
+              <label for="ingresoMonto">Monto bruto (USD)</label>
+              <input type="number" id="ingresoMonto" placeholder="0.00" min="0.01" step="0.01" inputmode="decimal" required oninput="actualizarComisionTarjeta()">
+            </div>
+            <!-- Cuadro de comisión tarjeta (aparece solo cuando método = Tarjeta) -->
+            <div id="ingresoComisionInfo" class="campo campo-completo hidden">
+              <div class="comision-box">
+                <div class="comision-fila">
+                  <span>Monto bruto cobrado</span>
+                  <span id="comisionBruto">$0.00</span>
+                </div>
+                <div class="comision-fila comision-deduccion">
+                  <span>Comisión tarjeta (2.74%)</span>
+                  <span id="comisionMonto">−$0.00</span>
+                </div>
+                <div class="comision-fila comision-neto">
+                  <span><strong>Neto a recibir</strong></span>
+                  <span id="comisionNeto"><strong>$0.00</strong></span>
+                </div>
+              </div>
             </div>
             <div class="campo campo-completo">
               <label for="ingresoNotas">Notas (opcional)</label>
@@ -745,8 +762,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
   <!-- App scripts -->
-  <script src="js/config.js?v=20260703e"></script>
-  <script src="js/app.js?v=20260703e"></script>
+  <script src="js/config.js?v=20260703f"></script>
+  <script src="js/app.js?v=20260703f"></script>
 
 </body>
 </html>

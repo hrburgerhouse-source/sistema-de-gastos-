@@ -613,6 +613,35 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
   background: var(--ingreso-dark) !important;
 }
 
+/* Cuadro desglose comisión tarjeta */
+.comision-box {
+  background: var(--ingreso-alpha);
+  border: 1.5px solid var(--ingreso);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+}
+.comision-fila {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  color: var(--texto-muted);
+}
+.comision-deduccion { color: var(--alerta); }
+.comision-neto {
+  color: var(--ingreso);
+  border-top: 1px solid var(--ingreso);
+  margin-top: 6px;
+  padding-top: 6px;
+  font-size: 0.92rem;
+}
+
+/* Nota de comisión en la lista */
+.ingreso-comision-nota {
+  font-size: 0.75rem;
+  color: var(--texto-muted);
+}
+
 .grupo-dia {
   border-bottom: 1.5px solid var(--borde-light);
 }
