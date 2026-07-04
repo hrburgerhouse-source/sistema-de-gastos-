@@ -2043,8 +2043,17 @@ function tarjetaIngreso(ingreso, esAdmin) {
       <button class="btn-accion btn-eliminar"  onclick="confirmarEliminarIngreso('${ingreso.id}')" title="Eliminar">🗑️</button>
     </div>` : '';
 
-  const comisionHtml = (ingreso.metodoPago === 'Tarjeta' && ingreso.montobruto && ingreso.montobruto !== ingreso.monto) ? `
-    <span class="ingreso-comision-nota">· Bruto ${formatMonto(ingreso.montobruto)} − comisión ${formatMonto(ingreso.comision || 0)}</span>` : '';
+  let comisionHtml = '';
+  if (ingreso.metodoPago === 'Tarjeta') {
+    if (ingreso.montobruto && ingreso.montobruto !== ingreso.monto) {
+      comisionHtml = `<span class="ingreso-comision-nota">· Bruto ${formatMonto(ingreso.montobruto)} − comisión ${formatMonto(ingreso.comision || 0)}</span>`;
+    } else {
+      // Calcular desde el neto si no se guardó el bruto (entradas antiguas)
+      const brutoEstimado = ingreso.monto / (1 - COMISION_TARJETA);
+      const comisionEstimada = brutoEstimado - ingreso.monto;
+      comisionHtml = `<span class="ingreso-comision-nota">· Bruto ~${formatMonto(brutoEstimado)} − comisión ~${formatMonto(comisionEstimada)}</span>`;
+    }
+  }
 
   return `
     <div class="gasto-item ingreso-item" data-id="${ingreso.id}">
