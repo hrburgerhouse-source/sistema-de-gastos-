@@ -1924,7 +1924,7 @@ function aplicarFiltrosIngresosClienteSide() {
 
   let ingresos = Estado.ingresos;
   if (categoria) ingresos = ingresos.filter(i => i.categoria === categoria);
-  if (metodo)    ingresos = ingresos.filter(i => i.metodoPago === metodo);
+  if (metodo)    ingresos = ingresos.filter(i => (i.metodoPago || '').includes(metodo));
   if (texto) {
     ingresos = ingresos.filter(i =>
       (i.descripcion || '').toLowerCase().includes(texto) ||
@@ -2043,16 +2043,35 @@ function tarjetaIngreso(ingreso, esAdmin) {
       <button class="btn-accion btn-eliminar"  onclick="confirmarEliminarIngreso('${ingreso.id}')" title="Eliminar">🗑️</button>
     </div>` : '';
 
-  let comisionHtml = '';
-  if (ingreso.metodoPago === 'Tarjeta') {
-    if (ingreso.montobruto && ingreso.montobruto !== ingreso.monto) {
-      comisionHtml = `<span class="ingreso-comision-nota">· Bruto ${formatMonto(ingreso.montobruto)} − comisión ${formatMonto(ingreso.comision || 0)}</span>`;
-    } else {
-      // Calcular desde el neto si no se guardó el bruto (entradas antiguas)
-      const brutoEstimado = ingreso.monto / (1 - COMISION_TARJETA);
-      const comisionEstimada = brutoEstimado - ingreso.monto;
-      comisionHtml = `<span class="ingreso-comision-nota">· Bruto ~${formatMonto(brutoEstimado)} − comisión ~${formatMonto(comisionEstimada)}</span>`;
+  const esMultiMetodo = ingreso.montoEfectivo !== undefined ||
+                        ingreso.montoTransferencia !== undefined ||
+                        ingreso.montoTarjetaBruto !== undefined;
+  let metaHtml = '';
+
+  if (esMultiMetodo) {
+    const partes = [];
+    if ((ingreso.montoEfectivo || 0) > 0)
+      partes.push(`<span class="gasto-metodo">💵 ${formatMonto(ingreso.montoEfectivo)}</span>`);
+    if ((ingreso.montoTransferencia || 0) > 0)
+      partes.push(`<span class="gasto-metodo">🏦 ${formatMonto(ingreso.montoTransferencia)}</span>`);
+    if ((ingreso.montoTarjetaBruto || 0) > 0) {
+      const comision = ingreso.montoTarjetaComision ?? +(ingreso.montoTarjetaBruto * COMISION_TARJETA).toFixed(2);
+      const neto     = ingreso.montoTarjeta         ?? +(ingreso.montoTarjetaBruto - comision).toFixed(2);
+      partes.push(`<span class="gasto-metodo">💳 ${formatMonto(neto)}</span><span class="ingreso-comision-nota"> · bruto ${formatMonto(ingreso.montoTarjetaBruto)} − comisión ${formatMonto(comision)}</span>`);
     }
+    metaHtml = partes.join('') + (ingreso.notas ? `<span class="gasto-notas">📝 ${ingreso.notas}</span>` : '');
+  } else {
+    let comisionHtml = '';
+    if (ingreso.metodoPago === 'Tarjeta') {
+      if (ingreso.montobruto && ingreso.montobruto !== ingreso.monto) {
+        comisionHtml = `<span class="ingreso-comision-nota">· Bruto ${formatMonto(ingreso.montobruto)} − comisión ${formatMonto(ingreso.comision || 0)}</span>`;
+      } else {
+        const brutoEstimado    = ingreso.monto / (1 - COMISION_TARJETA);
+        const comisionEstimada = brutoEstimado - ingreso.monto;
+        comisionHtml = `<span class="ingreso-comision-nota">· Bruto ~${formatMonto(brutoEstimado)} − comisión ~${formatMonto(comisionEstimada)}</span>`;
+      }
+    }
+    metaHtml = `<span class="gasto-metodo">${iconoMetodoPago(ingreso.metodoPago)} ${ingreso.metodoPago || ''}</span>${comisionHtml}${ingreso.notas ? `<span class="gasto-notas">· 📝 ${ingreso.notas}</span>` : ''}`;
   }
 
   return `
@@ -2060,11 +2079,7 @@ function tarjetaIngreso(ingreso, esAdmin) {
       <div class="gasto-izquierda">
         <div class="gasto-categoria-badge ingreso-categoria-badge">${ingreso.categoria || '—'}</div>
         <div class="gasto-descripcion">${ingreso.descripcion || '—'}</div>
-        <div class="gasto-meta">
-          <span class="gasto-metodo">${iconoMetodoPago(ingreso.metodoPago)} ${ingreso.metodoPago || ''}</span>
-          ${comisionHtml}
-          ${ingreso.notas ? `<span class="gasto-notas">· 📝 ${ingreso.notas}</span>` : ''}
-        </div>
+        <div class="gasto-meta">${metaHtml}</div>
       </div>
       <div class="gasto-derecha">
         <div class="gasto-monto ingreso-monto">${formatMonto(ingreso.monto)}</div>
@@ -2075,31 +2090,46 @@ function tarjetaIngreso(ingreso, esAdmin) {
 
 // --- CRUD ingresos (solo admin) ---
 
-function actualizarComisionTarjeta() {
-  const metodo = document.getElementById('ingresoMetodoPago').value;
-  const bruto  = parseFloat(document.getElementById('ingresoMonto').value) || 0;
-  const caja   = document.getElementById('ingresoComisionInfo');
-  if (!caja) return;
+function actualizarTotalIngreso() {
+  const efectivo      = parseFloat(document.getElementById('ingresoEfectivo').value)      || 0;
+  const transferencia = parseFloat(document.getElementById('ingresoTransferencia').value)  || 0;
+  const tarjetaBruto  = parseFloat(document.getElementById('ingresoTarjeta').value)        || 0;
+  const caja          = document.getElementById('ingresoComisionInfo');
 
-  if (metodo === 'Tarjeta' && bruto > 0) {
-    const comision = bruto * COMISION_TARJETA;
-    const neto     = bruto - comision;
-    document.getElementById('comisionBruto').textContent  = formatMonto(bruto);
-    document.getElementById('comisionMonto').textContent  = '−' + formatMonto(comision);
-    document.getElementById('comisionNeto').textContent   = formatMonto(neto);
-    caja.classList.remove('hidden');
+  let tarjetaNeto = tarjetaBruto;
+  if (tarjetaBruto > 0) {
+    const comision = tarjetaBruto * COMISION_TARJETA;
+    tarjetaNeto    = tarjetaBruto - comision;
+    document.getElementById('comisionBruto').textContent = formatMonto(tarjetaBruto);
+    document.getElementById('comisionMonto').textContent = '−' + formatMonto(comision);
+    document.getElementById('comisionNeto').textContent  = formatMonto(tarjetaNeto);
+    caja?.classList.remove('hidden');
   } else {
-    caja.classList.add('hidden');
+    caja?.classList.add('hidden');
   }
+
+  const total = efectivo + transferencia + tarjetaNeto;
+  const totalEl = document.getElementById('ingresoTotalNeto');
+  if (totalEl) totalEl.textContent = formatMonto(total);
 }
-window.actualizarComisionTarjeta = actualizarComisionTarjeta;
+window.actualizarTotalIngreso = actualizarTotalIngreso;
+
+function _resetCamposIngreso() {
+  ['ingresoEfectivo', 'ingresoTransferencia', 'ingresoTarjeta'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('ingresoComisionInfo')?.classList.add('hidden');
+  const totalEl = document.getElementById('ingresoTotalNeto');
+  if (totalEl) totalEl.textContent = formatMonto(0);
+}
 
 function abrirModalNuevoIngreso() {
   Estado.ingresoEditandoId = null;
   document.getElementById('modalIngresoTitulo').textContent = 'Nuevo Ingreso';
   document.getElementById('formIngreso').reset();
   document.getElementById('ingresoFecha').value = hoy();
-  document.getElementById('ingresoComisionInfo')?.classList.add('hidden');
+  _resetCamposIngreso();
   abrirModal('modalIngreso');
 }
 window.abrirModalNuevoIngreso = abrirModalNuevoIngreso;
@@ -2112,11 +2142,25 @@ function editarIngreso(id) {
   document.getElementById('ingresoFecha').value       = ingreso.fecha       || hoy();
   document.getElementById('ingresoCategoria').value   = ingreso.categoria   || '';
   document.getElementById('ingresoDescripcion').value = ingreso.descripcion || '';
-  // Si fue con tarjeta, mostrar el monto bruto original para re-editar
-  document.getElementById('ingresoMonto').value       = ingreso.montobruto  || ingreso.monto || '';
-  document.getElementById('ingresoMetodoPago').value  = ingreso.metodoPago  || '';
   document.getElementById('ingresoNotas').value       = ingreso.notas       || '';
-  actualizarComisionTarjeta();
+
+  // Poblar los tres campos de método
+  if (ingreso.montoEfectivo !== undefined || ingreso.montoTransferencia !== undefined || ingreso.montoTarjetaBruto !== undefined) {
+    // Entrada nueva con desglose
+    document.getElementById('ingresoEfectivo').value      = ingreso.montoEfectivo      || '';
+    document.getElementById('ingresoTransferencia').value  = ingreso.montoTransferencia  || '';
+    document.getElementById('ingresoTarjeta').value        = ingreso.montoTarjetaBruto   || '';
+  } else {
+    // Entrada antigua — mapear según metodoPago
+    _resetCamposIngreso();
+    const metodo = ingreso.metodoPago || 'Efectivo';
+    const valorBruto = ingreso.montobruto || ingreso.monto || '';
+    if (metodo === 'Efectivo')      document.getElementById('ingresoEfectivo').value     = valorBruto;
+    if (metodo === 'Transferencia') document.getElementById('ingresoTransferencia').value = valorBruto;
+    if (metodo === 'Tarjeta')       document.getElementById('ingresoTarjeta').value       = valorBruto;
+  }
+
+  actualizarTotalIngreso();
   abrirModal('modalIngreso');
 }
 window.editarIngreso = editarIngreso;
@@ -2128,35 +2172,39 @@ function cerrarModalIngreso() {
 window.cerrarModalIngreso = cerrarModalIngreso;
 
 async function guardarIngreso() {
-  const fecha       = document.getElementById('ingresoFecha').value;
-  const categoria   = document.getElementById('ingresoCategoria').value;
-  const descripcion = document.getElementById('ingresoDescripcion').value.trim();
-  const montobruto  = parseFloat(document.getElementById('ingresoMonto').value);
-  const metodoPago  = document.getElementById('ingresoMetodoPago').value;
-  const notas       = document.getElementById('ingresoNotas').value.trim();
+  const fecha         = document.getElementById('ingresoFecha').value;
+  const categoria     = document.getElementById('ingresoCategoria').value;
+  const descripcion   = document.getElementById('ingresoDescripcion').value.trim();
+  const efectivo      = parseFloat(document.getElementById('ingresoEfectivo').value)      || 0;
+  const transferencia = parseFloat(document.getElementById('ingresoTransferencia').value)  || 0;
+  const tarjetaBruto  = parseFloat(document.getElementById('ingresoTarjeta').value)        || 0;
+  const notas         = document.getElementById('ingresoNotas').value.trim();
 
-  if (!fecha)                         return mostrarToast('Selecciona una fecha.', 'advertencia');
-  if (!categoria)                     return mostrarToast('Selecciona una categoría.', 'advertencia');
-  if (!descripcion)                   return mostrarToast('Ingresa una descripción.', 'advertencia');
-  if (isNaN(montobruto) || montobruto <= 0) return mostrarToast('El monto debe ser mayor a $0.00.', 'advertencia');
-  if (!metodoPago)                    return mostrarToast('Selecciona el método de cobro.', 'advertencia');
+  if (!fecha)       return mostrarToast('Selecciona una fecha.', 'advertencia');
+  if (!categoria)   return mostrarToast('Selecciona una categoría.', 'advertencia');
+  if (!descripcion) return mostrarToast('Ingresa una descripción.', 'advertencia');
+  if (efectivo <= 0 && transferencia <= 0 && tarjetaBruto <= 0)
+    return mostrarToast('Ingresa al menos un monto mayor a $0.00.', 'advertencia');
 
-  // Calcular comisión si es pago con tarjeta
-  let monto = montobruto;
-  let comisionData = {};
-  if (metodoPago === 'Tarjeta') {
-    const comision = montobruto * COMISION_TARJETA;
-    monto = montobruto - comision;
-    comisionData = { montobruto, comision: +comision.toFixed(2), comisionPct: COMISION_TARJETA };
-  } else {
-    comisionData = { montobruto, comision: 0, comisionPct: 0 };
-  }
+  const tarjetaComision = +(tarjetaBruto * COMISION_TARJETA).toFixed(2);
+  const tarjetaNeto     = +(tarjetaBruto - tarjetaComision).toFixed(2);
+  const totalNeto       = +(efectivo + transferencia + tarjetaNeto).toFixed(2);
+
+  const metodos = [];
+  if (efectivo > 0)      metodos.push('Efectivo');
+  if (transferencia > 0) metodos.push('Transferencia');
+  if (tarjetaBruto > 0)  metodos.push('Tarjeta');
 
   const datos = {
     fecha, categoria, descripcion,
-    monto: +monto.toFixed(2),
-    ...comisionData,
-    metodoPago, notas,
+    monto: totalNeto,
+    montoEfectivo:       +efectivo.toFixed(2),
+    montoTransferencia:  +transferencia.toFixed(2),
+    montoTarjetaBruto:   +tarjetaBruto.toFixed(2),
+    montoTarjetaComision: tarjetaComision,
+    montoTarjeta:         tarjetaNeto,
+    metodoPago: metodos.join(', ') || 'Efectivo',
+    notas,
     registradoPor: Estado.usuario.rol,
     timestamp: firebase.firestore.FieldValue.serverTimestamp()
   };

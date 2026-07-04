@@ -642,6 +642,24 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
   color: var(--texto-muted);
 }
 
+/* Caja de total neto en modal de ingreso */
+.ingreso-total-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--ingreso-alpha);
+  border: 2px solid var(--ingreso);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  color: var(--texto);
+}
+.ingreso-total-box strong {
+  font-size: 1.15rem;
+  color: var(--ingreso);
+  font-weight: 700;
+}
+
 .grupo-dia {
   border-bottom: 1.5px solid var(--borde-light);
 }

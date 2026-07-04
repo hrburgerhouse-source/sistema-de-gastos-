@@ -15,9 +15,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260703g">
+  <link rel="stylesheet" href="css/style.css?v=20260703h">
   <!-- Aplicar tema antes del render para evitar parpadeo -->
-  <script src="js/theme.js?v=20260703g"></script>
+  <script src="js/theme.js?v=20260703h"></script>
 </head>
 <body>
 
@@ -689,15 +689,6 @@
               <label for="ingresoFecha">Fecha</label>
               <input type="date" id="ingresoFecha" required>
             </div>
-            <div class="campo">
-              <label for="ingresoMetodoPago">Método de cobro</label>
-              <select id="ingresoMetodoPago" required onchange="actualizarComisionTarjeta()">
-                <option value="">Seleccionar…</option>
-                <option value="Efectivo">💵 Efectivo</option>
-                <option value="Transferencia">🏦 Transferencia</option>
-                <option value="Tarjeta">💳 Tarjeta</option>
-              </select>
-            </div>
             <div class="campo campo-completo">
               <label for="ingresoCategoria">Categoría</label>
               <select id="ingresoCategoria" required>
@@ -712,15 +703,26 @@
               <label for="ingresoDescripcion">Descripción</label>
               <input type="text" id="ingresoDescripcion" placeholder="Ej: Ventas del sábado" required>
             </div>
-            <div class="campo campo-completo campo-monto">
-              <label for="ingresoMonto">Monto bruto (USD)</label>
-              <input type="number" id="ingresoMonto" placeholder="0.00" min="0.01" step="0.01" inputmode="decimal" required oninput="actualizarComisionTarjeta()">
+
+            <!-- Los tres métodos de pago -->
+            <div class="campo">
+              <label for="ingresoEfectivo">💵 Efectivo (USD)</label>
+              <input type="number" id="ingresoEfectivo" placeholder="0.00" min="0" step="0.01" inputmode="decimal" oninput="actualizarTotalIngreso()">
             </div>
-            <!-- Cuadro de comisión tarjeta (aparece solo cuando método = Tarjeta) -->
+            <div class="campo">
+              <label for="ingresoTransferencia">🏦 Transferencia (USD)</label>
+              <input type="number" id="ingresoTransferencia" placeholder="0.00" min="0" step="0.01" inputmode="decimal" oninput="actualizarTotalIngreso()">
+            </div>
+            <div class="campo">
+              <label for="ingresoTarjeta">💳 Tarjeta bruto (USD)</label>
+              <input type="number" id="ingresoTarjeta" placeholder="0.00" min="0" step="0.01" inputmode="decimal" oninput="actualizarTotalIngreso()">
+            </div>
+
+            <!-- Desglose comisión tarjeta (aparece cuando tarjeta > 0) -->
             <div id="ingresoComisionInfo" class="campo campo-completo hidden">
               <div class="comision-box">
                 <div class="comision-fila">
-                  <span>Monto bruto cobrado</span>
+                  <span>Tarjeta bruto</span>
                   <span id="comisionBruto">$0.00</span>
                 </div>
                 <div class="comision-fila comision-deduccion">
@@ -728,11 +730,20 @@
                   <span id="comisionMonto">−$0.00</span>
                 </div>
                 <div class="comision-fila comision-neto">
-                  <span><strong>Neto a recibir</strong></span>
-                  <span id="comisionNeto"><strong>$0.00</strong></span>
+                  <span>Tarjeta neto</span>
+                  <span id="comisionNeto">$0.00</span>
                 </div>
               </div>
             </div>
+
+            <!-- Total neto -->
+            <div class="campo campo-completo">
+              <div class="ingreso-total-box">
+                <span>Total neto a registrar</span>
+                <strong id="ingresoTotalNeto">$0.00</strong>
+              </div>
+            </div>
+
             <div class="campo campo-completo">
               <label for="ingresoNotas">Notas (opcional)</label>
               <textarea id="ingresoNotas" placeholder="Información adicional…" rows="2"></textarea>
@@ -762,8 +773,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
   <!-- App scripts -->
-  <script src="js/config.js?v=20260703g"></script>
-  <script src="js/app.js?v=20260703g"></script>
+  <script src="js/config.js?v=20260703h"></script>
+  <script src="js/app.js?v=20260703h"></script>
 
 </body>
 </html>
