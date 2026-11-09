@@ -15,9 +15,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260703h">
+  <link rel="stylesheet" href="css/style.css?v=20261109">
   <!-- Aplicar tema antes del render para evitar parpadeo -->
-  <script src="js/theme.js?v=20260703h"></script>
+  <script src="js/theme.js?v=20261109"></script>
 </head>
 <body>
 
@@ -93,6 +93,7 @@
     <nav class="nav-tabs" id="navTabs" role="tablist">
       <button class="nav-tab activo" data-tab="gastos"   onclick="cambiarTab('gastos')"   role="tab" aria-selected="true">💸 Gastos</button>
       <button class="nav-tab"        data-tab="ingresos" onclick="cambiarTab('ingresos')" role="tab" aria-selected="false">💰 Ingresos</button>
+      <button class="nav-tab"        data-tab="cuentas"  onclick="cambiarTab('cuentas')"  role="tab" aria-selected="false">🏦 Cuentas</button>
       <button class="nav-tab"        data-tab="resumen"  onclick="cambiarTab('resumen')"  role="tab" aria-selected="false">📊 Resumen</button>
       <button class="nav-tab"        data-tab="graficas" onclick="cambiarTab('graficas')" role="tab" aria-selected="false">📈 Gráficas</button>
       <button class="nav-tab tab-admin hidden" data-tab="ajustes"  onclick="cambiarTab('ajustes')"  role="tab" aria-selected="false">⚙️ Ajustes</button>
@@ -247,6 +248,14 @@
       </div>
 
       <!-- ======================================================
+           TAB: CUENTAS
+           ====================================================== -->
+      <div id="tabCuentas" class="tab-contenido hidden" role="tabpanel">
+        <div id="cuentasTotalBanner"></div>
+        <div id="listaCuentas"></div>
+      </div>
+
+      <!-- ======================================================
            TAB: RESUMEN
            ====================================================== -->
       <div id="tabResumen" class="tab-contenido hidden" role="tabpanel">
@@ -268,6 +277,13 @@
         <div class="card">
           <h3>💰 Ingresos por categoría</h3>
           <div id="tablaIngresosResumen"></div>
+        </div>
+
+        <!-- Total en cuentas de ahorro -->
+        <div id="cardCuentasResumen" class="card hidden">
+          <h3>💰 Total en cuentas de ahorro</h3>
+          <div id="resumenCuentasTotal" class="cuentas-resumen-total"></div>
+          <div id="resumenCuentasFecha" style="font-size:.82rem;color:var(--texto-muted);margin-top:4px"></div>
         </div>
 
         <!-- Mis compras pendientes (visible para socios) -->
@@ -387,6 +403,18 @@
           <div id="listaPendientesAdmin"></div>
           <div style="margin-top:14px;">
             <button class="btn btn-primario" onclick="abrirModalPendiente()">+ Registrar compra pendiente</button>
+          </div>
+        </div>
+
+        <!-- Gestionar cuentas de ahorro (solo admin) -->
+        <div class="card">
+          <h3>🏦 Cuentas de ahorro</h3>
+          <p style="font-size:.85rem;color:var(--texto-muted);margin-bottom:14px">
+            Crea y administra las cuentas de cada socio. Solo el encargado de cada cuenta puede actualizar su saldo desde la pestaña Cuentas.
+          </p>
+          <div id="listaCuentasAdmin"></div>
+          <div style="margin-top:14px;">
+            <button class="btn btn-primario" onclick="abrirModalGestionCuenta()">+ Nueva cuenta</button>
           </div>
         </div>
 
@@ -759,6 +787,99 @@
   </div>
 
   <!-- ============================================================
+       MODAL: ACTUALIZAR SALDO DE CUENTA
+       ============================================================ -->
+  <div id="modalActualizarSaldo" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="actualizarSaldoTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="actualizarSaldoTitulo">Actualizar saldo</h2>
+        <button class="modal-cerrar" onclick="cerrarModal('modalActualizarSaldo')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="actualizarSaldoActual" class="saldo-referencia-box"></div>
+        <p style="font-size:.82rem;color:var(--texto-muted);margin-bottom:16px">
+          Ingresa el saldo total disponible en la cuenta <strong>en este momento</strong>. Este valor reemplazará el saldo actual.
+        </p>
+        <div class="form-grid">
+          <div class="campo campo-completo campo-monto">
+            <label for="nuevoSaldoInput">Nuevo saldo total (USD)</label>
+            <input type="number" id="nuevoSaldoInput" placeholder="0.00" min="0" step="0.01" inputmode="decimal">
+          </div>
+          <div class="campo campo-completo">
+            <label for="notaSaldoInput">Nota (opcional)</label>
+            <input type="text" id="notaSaldoInput" placeholder="Ej: después de depósito de la semana" maxlength="120">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModal('modalActualizarSaldo')">Cancelar</button>
+        <button class="btn btn-primario"   onclick="guardarSaldo()">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: HISTORIAL DE CUENTA
+       ============================================================ -->
+  <div id="modalHistorialCuenta" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="historialCuentaTitulo">
+    <div class="modal modal-grande">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="historialCuentaTitulo">Historial</h2>
+        <button class="modal-cerrar" onclick="cerrarModalHistorialCuenta()" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="graficaCuentaWrapper" class="grafica-wrapper" style="height:200px;margin-bottom:16px">
+          <canvas id="graficaCuentaHistorial"></canvas>
+        </div>
+        <div id="listaHistorialCuenta"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModalHistorialCuenta()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: GESTIÓN DE CUENTA (admin)
+       ============================================================ -->
+  <div id="modalGestionCuenta" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="gestionCuentaTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="gestionCuentaTitulo">Nueva cuenta</h2>
+        <button class="modal-cerrar" onclick="cerrarModal('modalGestionCuenta')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="campo campo-completo">
+            <label for="cuentaNombreInput">Nombre de la cuenta</label>
+            <input type="text" id="cuentaNombreInput" placeholder="Ej: Cuenta Banco Agrícola" maxlength="80">
+          </div>
+          <div class="campo campo-completo">
+            <label for="cuentaBancoInput">Banco (opcional)</label>
+            <input type="text" id="cuentaBancoInput" placeholder="Ej: Banco Agrícola" maxlength="60">
+          </div>
+          <div class="campo campo-completo">
+            <label for="cuentaEncargadoSelect">Encargado</label>
+            <select id="cuentaEncargadoSelect">
+              <option value="socio1">Socio 1</option>
+              <option value="socio2">Socio 2</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+          <div class="campo campo-completo campo-monto" id="campoSaldoInicial">
+            <label for="cuentaSaldoInicialInput">Saldo inicial (USD)</label>
+            <input type="number" id="cuentaSaldoInicialInput" placeholder="0.00" min="0" step="0.01" inputmode="decimal">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModal('modalGestionCuenta')">Cancelar</button>
+        <button class="btn btn-primario"   onclick="guardarCuenta()">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
        SDKs Y LIBRERÍAS
        ============================================================ -->
   <!-- Firebase compat SDK v9.23.0 -->
@@ -773,8 +894,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
   <!-- App scripts -->
-  <script src="js/config.js?v=20260703h"></script>
-  <script src="js/app.js?v=20260703h"></script>
+  <script src="js/config.js?v=20261109"></script>
+  <script src="js/app.js?v=20261109"></script>
 
 </body>
 </html>

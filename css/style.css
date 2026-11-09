@@ -1278,3 +1278,145 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
   .pin-btn { font-size: 1.2rem; }
   .filtros-grid { grid-template-columns: 1fr; }
 }
+
+/* ================================================================
+   CUENTAS DE AHORRO
+   ================================================================ */
+
+/* Tarjeta individual de cuenta */
+.cuenta-card {
+  background: var(--bg-card);
+  border: 1.5px solid var(--borde);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 8px var(--sombra);
+  transition: box-shadow 0.2s;
+}
+.cuenta-card:hover { box-shadow: 0 4px 16px var(--sombra-md); }
+
+.cuenta-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.cuenta-nombre {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--texto);
+  line-height: 1.3;
+}
+.cuenta-banco { font-weight: 400; color: var(--texto-muted); }
+
+.cuenta-encargado {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--texto-muted);
+  background: var(--bg);
+  border: 1px solid var(--borde);
+  border-radius: 20px;
+  padding: 3px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Saldo grande */
+.cuenta-saldo-grande {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: var(--ingreso);
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+  margin-bottom: 8px;
+}
+
+.cuenta-meta-actualizado {
+  font-size: .78rem;
+  color: var(--texto-muted);
+  margin-bottom: 4px;
+}
+
+.cuenta-aviso-obsoleto {
+  font-size: .78rem;
+  font-weight: 600;
+  color: #856404;
+  background: rgba(255,193,7,.12);
+  border: 1px solid rgba(255,193,7,.35);
+  border-radius: 8px;
+  padding: 5px 10px;
+  margin-bottom: 4px;
+  display: inline-block;
+}
+
+.cuenta-acciones {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.cuenta-btn-actualizar { flex-shrink: 0; }
+
+/* Resumen: total en cuentas */
+.cuentas-resumen-total {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--ingreso);
+  margin: 8px 0 4px;
+}
+
+/* Modal actualizar saldo: referencia del saldo actual */
+.saldo-referencia-box {
+  background: var(--bg);
+  border: 1.5px solid var(--borde);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.saldo-referencia {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.saldo-referencia span { font-size: .82rem; color: var(--texto-muted); font-weight: 600; }
+.saldo-referencia strong { font-size: 1.5rem; font-weight: 700; color: var(--ingreso); }
+
+/* Modal grande para historial */
+.modal-grande { max-width: 600px; }
+
+/* Movimientos del historial */
+.movimiento-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--borde-light);
+  gap: 12px;
+}
+.movimiento-item:last-child { border-bottom: none; }
+
+.movimiento-izq { flex: 1; min-width: 0; }
+.movimiento-fecha   { font-size: .78rem; color: var(--texto-muted); margin-bottom: 3px; }
+.movimiento-saldos  { font-size: .9rem; color: var(--texto); margin-bottom: 2px; }
+.movimiento-meta    { font-size: .75rem; color: var(--texto-muted); }
+
+.movimiento-diff-positivo {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--exito);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.movimiento-diff-negativo {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--alerta);
+  white-space: nowrap;
+  flex-shrink: 0;
+}

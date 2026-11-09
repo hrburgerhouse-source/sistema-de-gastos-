@@ -15,6 +15,7 @@ const Estado = {
   gastos:       [],
   ingresos:     [],
   categorias:   [],
+  cuentas:      [],
   pins:         {},
   pinIngresado: '',
   gastoEditandoId: null,
@@ -22,6 +23,9 @@ const Estado = {
   ingresoEditandoId: null,
   ingresoAEliminarId: null,
   categoriaEditandoId: null,
+  cuentaEditandoId: null,
+  cuentaHistorialId: null,
+  cuentaADesactivarId: null,
   pinCambiandoRol: null,
   pinResetandoRol: null,
   pendienteAPagarId: null,
@@ -30,7 +34,7 @@ const Estado = {
   gastosResumenActual: [],
   ingresosResumenActual: [],
   pendientes:   [],
-  graficas: { dona: null, barras: null, linea: null },
+  graficas: { dona: null, barras: null, linea: null, cuentaHistorial: null },
 };
 
 // ================================================================
@@ -218,6 +222,8 @@ function cerrarSesion() {
   Estado.ingresosResumenActual = [];
   localStorage.removeItem('hr-gastos-usuario');
 
+  Estado.cuentas = [];
+
   // Destruir gráficas
   Object.keys(Estado.graficas).forEach(k => {
     if (Estado.graficas[k]) { Estado.graficas[k].destroy(); Estado.graficas[k] = null; }
@@ -249,6 +255,7 @@ window.cerrarSesion = cerrarSesion;
 function cambiarTab(tab) {
   cambiarTabSilencioso(tab);
   if (tab === 'ingresos') cargarIngresosMesActual();
+  if (tab === 'cuentas')  cargarCuentas();
   if (tab === 'resumen')  cargarResumen();
   if (tab === 'graficas') cargarGraficas();
   if (tab === 'ajustes')  cargarAjustes();
@@ -704,9 +711,11 @@ window.guardarGasto = guardarGasto;
 function confirmarEliminarGasto(id) {
   Estado.gastoAEliminarId   = id;
   Estado.ingresoAEliminarId = null;
+  Estado.cuentaADesactivarId = null;
   const g = Estado.gastos.find(x => x.id === id);
   document.getElementById('confirmarMensaje').innerHTML =
     `¿Deseas eliminar el gasto <strong>"${g?.descripcion || ''}"</strong> por <strong>${formatMonto(g?.monto)}</strong>?<br><br>Esta acción no se puede deshacer.`;
+  document.querySelector('#modalConfirmar .btn-peligro').textContent = 'Sí, eliminar';
   abrirModal('modalConfirmar');
 }
 window.confirmarEliminarGasto = confirmarEliminarGasto;
@@ -714,14 +723,35 @@ window.confirmarEliminarGasto = confirmarEliminarGasto;
 function confirmarEliminarIngreso(id) {
   Estado.ingresoAEliminarId = id;
   Estado.gastoAEliminarId   = null;
+  Estado.cuentaADesactivarId = null;
   const i = Estado.ingresos.find(x => x.id === id);
   document.getElementById('confirmarMensaje').innerHTML =
     `¿Deseas eliminar el ingreso <strong>"${i?.descripcion || ''}"</strong> por <strong>${formatMonto(i?.monto)}</strong>?<br><br>Esta acción no se puede deshacer.`;
+  document.querySelector('#modalConfirmar .btn-peligro').textContent = 'Sí, eliminar';
   abrirModal('modalConfirmar');
 }
 window.confirmarEliminarIngreso = confirmarEliminarIngreso;
 
 async function ejecutarEliminar() {
+  // Deactivate account (admin only)
+  if (Estado.cuentaADesactivarId) {
+    const id = Estado.cuentaADesactivarId;
+    Estado.cuentaADesactivarId = null;
+    mostrarSpinner();
+    try {
+      await db.collection('cuentas').doc(id).update({ activa: false });
+      mostrarToast('Cuenta desactivada. Su historial se conserva.', 'exito');
+      cerrarModal('modalConfirmar');
+      await cargarCuentas();
+      cargarSeccionCuentasAjustes();
+    } catch (err) {
+      console.error(err);
+      mostrarToast('Error al desactivar la cuenta.', 'error');
+    }
+    ocultarSpinner();
+    return;
+  }
+
   const esIngreso = !!Estado.ingresoAEliminarId;
   const id = esIngreso ? Estado.ingresoAEliminarId : Estado.gastoAEliminarId;
   if (!id) return;
@@ -785,6 +815,7 @@ async function cargarResumen() {
       await cargarPendientes();
       renderizarMisPendientes();
     }
+    await actualizarResumenCuentas();
   } catch (err) {
     console.error(err);
     mostrarToast('Error al cargar el resumen.', 'error');
@@ -1124,6 +1155,9 @@ async function cargarAjustes() {
   // Cargar y renderizar pendientes
   await cargarPendientes();
   renderizarPendientesAdmin();
+
+  // Cargar sección de cuentas
+  cargarSeccionCuentasAjustes();
 }
 window.cargarAjustes = cargarAjustes;
 
@@ -2274,3 +2308,470 @@ document.addEventListener('DOMContentLoaded', async () => {
     ocultarSpinner();
   }
 });
+
+// ================================================================
+// TAB: CUENTAS DE AHORRO
+// ================================================================
+
+async function cargarCuentas() {
+  const lista = document.getElementById('listaCuentas');
+  if (lista) lista.innerHTML = Array(2).fill('<div class="skeleton skeleton-gasto"></div>').join('');
+  try {
+    const snap = await db.collection('cuentas').get();
+    Estado.cuentas = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(c => c.activa !== false)
+      .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+    renderizarCuentas();
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al cargar cuentas.', 'error');
+    renderizarCuentas();
+  }
+}
+window.cargarCuentas = cargarCuentas;
+
+function renderizarCuentas() {
+  const banner = document.getElementById('cuentasTotalBanner');
+  const lista  = document.getElementById('listaCuentas');
+  if (!banner || !lista) return;
+
+  if (!Estado.cuentas.length) {
+    banner.innerHTML = '';
+    lista.innerHTML = `
+      <div class="estado-vacio">
+        <div class="estado-vacio-icono">🏦</div>
+        <p>No hay cuentas de ahorro activas.</p>
+        ${Estado.usuario?.rol === 'admin'
+          ? '<button class="btn btn-primario" onclick="cambiarTab(\'ajustes\')">Ir a Ajustes para agregar cuentas</button>'
+          : ''}
+      </div>`;
+    return;
+  }
+
+  const totalGeneral = Estado.cuentas.reduce((s, c) => s + (c.saldoActual || 0), 0);
+  banner.innerHTML = `
+    <div class="total-general-banner">
+      <span>Total en todas las cuentas</span>
+      <strong>${formatMonto(totalGeneral)}</strong>
+    </div>`;
+
+  lista.innerHTML = Estado.cuentas.map(c => tarjetaCuenta(c)).join('');
+}
+
+function tarjetaCuenta(cuenta) {
+  const esEncargado = Estado.usuario?.rol === cuenta.encargado;
+  const ahora = new Date();
+
+  let metaActualizacion = 'Sin actualizaciones aún';
+  let avisoObsoleto = '';
+  if (cuenta.actualizadoEn) {
+    const fechaAct = cuenta.actualizadoEn.toDate ? cuenta.actualizadoEn.toDate() : new Date(cuenta.actualizadoEn);
+    const diasSinAct = Math.floor((ahora - fechaAct) / (1000 * 60 * 60 * 24));
+    const fechaStr = fechaAct.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+    const horaStr  = fechaAct.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    metaActualizacion = `Actualizado el ${fechaStr} a las ${horaStr} por ${nombreRol(cuenta.actualizadoPor || cuenta.encargado)}`;
+    if (diasSinAct >= 7) {
+      avisoObsoleto = `<div class="cuenta-aviso-obsoleto">⚠️ Sin actualizar hace ${diasSinAct} día${diasSinAct !== 1 ? 's' : ''}</div>`;
+    }
+  }
+
+  const botonActualizar = esEncargado
+    ? `<button class="btn btn-primario cuenta-btn-actualizar" onclick="abrirModalActualizarSaldo('${cuenta.id}')">✏️ Actualizar saldo</button>`
+    : '';
+
+  return `
+    <div class="cuenta-card">
+      <div class="cuenta-card-header">
+        <div class="cuenta-nombre">${cuenta.nombre}${cuenta.banco ? `<span class="cuenta-banco"> — ${cuenta.banco}</span>` : ''}</div>
+        <div class="cuenta-encargado">👤 ${nombreRol(cuenta.encargado)}</div>
+      </div>
+      <div class="cuenta-saldo-grande">${formatMonto(cuenta.saldoActual || 0)}</div>
+      <div class="cuenta-meta-actualizado">${metaActualizacion}</div>
+      ${avisoObsoleto}
+      <div class="cuenta-acciones">
+        ${botonActualizar}
+        <button class="btn btn-secundario" onclick="abrirModalHistorialCuenta('${cuenta.id}')">📋 Ver historial</button>
+      </div>
+    </div>`;
+}
+
+// ----------------------------------------------------------------
+// Actualizar saldo (solo el encargado)
+// ----------------------------------------------------------------
+
+function abrirModalActualizarSaldo(id) {
+  const cuenta = Estado.cuentas.find(c => c.id === id);
+  if (!cuenta) return;
+  if (Estado.usuario?.rol !== cuenta.encargado) {
+    return mostrarToast('Solo el encargado puede actualizar esta cuenta.', 'advertencia');
+  }
+  Estado.cuentaEditandoId = id;
+  document.getElementById('actualizarSaldoTitulo').textContent = `Actualizar — ${cuenta.nombre}`;
+  document.getElementById('actualizarSaldoActual').innerHTML = `
+    <div class="saldo-referencia">
+      <span>Saldo actual registrado</span>
+      <strong>${formatMonto(cuenta.saldoActual || 0)}</strong>
+    </div>`;
+  document.getElementById('nuevoSaldoInput').value = '';
+  document.getElementById('notaSaldoInput').value  = '';
+  abrirModal('modalActualizarSaldo');
+}
+window.abrirModalActualizarSaldo = abrirModalActualizarSaldo;
+
+async function guardarSaldo() {
+  const id = Estado.cuentaEditandoId;
+  const cuenta = Estado.cuentas.find(c => c.id === id);
+  if (!cuenta) return;
+  if (Estado.usuario?.rol !== cuenta.encargado) {
+    return mostrarToast('Solo el encargado puede actualizar esta cuenta.', 'advertencia');
+  }
+
+  const nuevoSaldo = parseFloat(document.getElementById('nuevoSaldoInput').value);
+  const nota       = document.getElementById('notaSaldoInput').value.trim();
+
+  if (isNaN(nuevoSaldo) || nuevoSaldo < 0) {
+    return mostrarToast('Ingresa un saldo válido (mayor o igual a $0.00).', 'advertencia');
+  }
+
+  const saldoAnterior = +(cuenta.saldoActual || 0);
+  const diferencia    = +(nuevoSaldo - saldoAnterior).toFixed(2);
+
+  mostrarSpinner();
+  try {
+    const ahora = firebase.firestore.FieldValue.serverTimestamp();
+    await db.collection('cuentas').doc(id).update({
+      saldoActual:    +nuevoSaldo.toFixed(2),
+      actualizadoEn:  ahora,
+      actualizadoPor: Estado.usuario.rol
+    });
+    await db.collection('cuentas').doc(id).collection('movimientos').add({
+      fecha:          ahora,
+      saldoAnterior,
+      saldoNuevo:     +nuevoSaldo.toFixed(2),
+      diferencia,
+      actualizadoPor: Estado.usuario.rol,
+      nota
+    });
+    mostrarToast('Saldo actualizado correctamente.', 'exito');
+    cerrarModal('modalActualizarSaldo');
+    await cargarCuentas();
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al guardar el saldo.', 'error');
+  }
+  ocultarSpinner();
+}
+window.guardarSaldo = guardarSaldo;
+
+// ----------------------------------------------------------------
+// Historial de cuenta
+// ----------------------------------------------------------------
+
+async function abrirModalHistorialCuenta(id) {
+  const cuenta = Estado.cuentas.find(c => c.id === id);
+  if (!cuenta) return;
+
+  Estado.cuentaHistorialId = id;
+  document.getElementById('historialCuentaTitulo').textContent = `Historial — ${cuenta.nombre}`;
+  document.getElementById('listaHistorialCuenta').innerHTML =
+    Array(3).fill('<div class="skeleton skeleton-gasto"></div>').join('');
+  document.getElementById('graficaCuentaWrapper').classList.add('hidden');
+
+  abrirModal('modalHistorialCuenta');
+
+  try {
+    const snap = await db.collection('cuentas').doc(id).collection('movimientos')
+      .orderBy('fecha', 'desc').limit(50).get();
+    const movimientos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderizarHistorialCuenta(movimientos, cuenta);
+  } catch (err) {
+    console.error(err);
+    document.getElementById('listaHistorialCuenta').innerHTML =
+      '<p style="color:var(--texto-muted);text-align:center;padding:16px">Error al cargar el historial.</p>';
+  }
+}
+window.abrirModalHistorialCuenta = abrirModalHistorialCuenta;
+
+function cerrarModalHistorialCuenta() {
+  if (Estado.graficas.cuentaHistorial) {
+    Estado.graficas.cuentaHistorial.destroy();
+    Estado.graficas.cuentaHistorial = null;
+  }
+  cerrarModal('modalHistorialCuenta');
+}
+window.cerrarModalHistorialCuenta = cerrarModalHistorialCuenta;
+
+function renderizarHistorialCuenta(movimientos, cuenta) {
+  // Destruir gráfica anterior si existe
+  if (Estado.graficas.cuentaHistorial) {
+    Estado.graficas.cuentaHistorial.destroy();
+    Estado.graficas.cuentaHistorial = null;
+  }
+
+  const wrapper = document.getElementById('graficaCuentaWrapper');
+  const ctx     = document.getElementById('graficaCuentaHistorial');
+
+  // Gráfica de línea solo si hay 2+ movimientos
+  if (movimientos.length >= 2) {
+    const movCrono = [...movimientos].reverse();
+    const labels = movCrono.map(m => {
+      const f = m.fecha?.toDate ? m.fecha.toDate() : new Date(m.fecha);
+      return f.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+    });
+    const data = movCrono.map(m => m.saldoNuevo || 0);
+    const color = getComputedStyle(document.documentElement).getPropertyValue('--primario').trim() || '#FF6B35';
+
+    Estado.graficas.cuentaHistorial = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Saldo',
+          data,
+          borderColor: color,
+          backgroundColor: 'rgba(255,107,53,0.08)',
+          tension: 0.3,
+          fill: true,
+          pointRadius: 4,
+          pointBackgroundColor: color
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            ticks: {
+              color: colorTextoGrafica(),
+              callback: v => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2 })
+            },
+            grid: { color: colorBordeGrafica() }
+          },
+          x: { ticks: { color: colorTextoGrafica() }, grid: { display: false } }
+        }
+      }
+    });
+    wrapper.classList.remove('hidden');
+  } else {
+    wrapper.classList.add('hidden');
+  }
+
+  // Lista de movimientos
+  const listaEl = document.getElementById('listaHistorialCuenta');
+  if (!movimientos.length) {
+    listaEl.innerHTML = '<p style="color:var(--texto-muted);font-size:.88rem;text-align:center;padding:20px">Sin movimientos registrados todavía.</p>';
+    return;
+  }
+
+  listaEl.innerHTML = movimientos.map(m => {
+    const fecha   = m.fecha?.toDate ? m.fecha.toDate() : new Date(m.fecha);
+    const fechaStr = fecha.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+    const horaStr  = fecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    const difClase = (m.diferencia || 0) >= 0 ? 'movimiento-diff-positivo' : 'movimiento-diff-negativo';
+    const difSigno = (m.diferencia || 0) >= 0 ? '+' : '';
+
+    return `
+      <div class="movimiento-item">
+        <div class="movimiento-izq">
+          <div class="movimiento-fecha">${fechaStr} · ${horaStr}</div>
+          <div class="movimiento-saldos">${formatMonto(m.saldoAnterior)} → <strong>${formatMonto(m.saldoNuevo)}</strong></div>
+          <div class="movimiento-meta">Por ${nombreRol(m.actualizadoPor)}${m.nota ? ' · ' + m.nota : ''}</div>
+        </div>
+        <div class="${difClase}">${difSigno}${formatMonto(Math.abs(m.diferencia || 0))}</div>
+      </div>`;
+  }).join('');
+}
+
+// ----------------------------------------------------------------
+// Resumen: tarjeta de cuentas
+// ----------------------------------------------------------------
+
+async function actualizarResumenCuentas() {
+  const cardEl = document.getElementById('cardCuentasResumen');
+  if (!cardEl) return;
+  try {
+    // Si ya se cargaron las cuentas en este tab, reusar; si no, cargar fresh
+    let cuentas = Estado.cuentas;
+    if (!cuentas.length) {
+      const snap = await db.collection('cuentas').get();
+      cuentas = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(c => c.activa !== false);
+    }
+    if (!cuentas.length) { cardEl.classList.add('hidden'); return; }
+
+    const total = cuentas.reduce((s, c) => s + (c.saldoActual || 0), 0);
+
+    // Dato más antiguo: cuenta con la fecha de actualización más vieja
+    let masAntigua = null;
+    cuentas.forEach(c => {
+      if (!c.actualizadoEn) return;
+      const f = c.actualizadoEn.toDate ? c.actualizadoEn.toDate() : new Date(c.actualizadoEn);
+      if (!masAntigua || f < masAntigua) masAntigua = f;
+    });
+
+    document.getElementById('resumenCuentasTotal').textContent = formatMonto(total);
+    document.getElementById('resumenCuentasFecha').textContent = masAntigua
+      ? `Dato más antiguo: ${masAntigua.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}`
+      : 'Sin actualizaciones aún';
+    cardEl.classList.remove('hidden');
+  } catch (err) {
+    console.error(err);
+    cardEl.classList.add('hidden');
+  }
+}
+
+// ----------------------------------------------------------------
+// Admin: gestión de cuentas (Ajustes)
+// ----------------------------------------------------------------
+
+function cargarSeccionCuentasAjustes() {
+  const listaEl = document.getElementById('listaCuentasAdmin');
+  if (!listaEl) return;
+
+  db.collection('cuentas').get().then(snap => {
+    const todas = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+
+    if (!todas.length) {
+      listaEl.innerHTML = '<p style="color:var(--texto-muted);font-size:.88rem">No hay cuentas registradas aún.</p>';
+      return;
+    }
+
+    listaEl.innerHTML = todas.map(c => `
+      <div class="pendiente-item">
+        <div class="pendiente-info">
+          <div class="pendiente-desc">${c.nombre}${c.banco ? ` — ${c.banco}` : ''}</div>
+          <div class="pendiente-meta">
+            Encargado: ${nombreRol(c.encargado)} · Saldo: ${formatMonto(c.saldoActual || 0)}
+            ${c.activa === false ? ' · <span style="color:var(--alerta);font-weight:600">Inactiva</span>' : ''}
+          </div>
+        </div>
+        <div class="pendiente-derecha">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="btn-accion btn-editar" onclick="abrirModalGestionCuenta('${c.id}')" title="Editar">✏️</button>
+            ${c.activa !== false
+              ? `<button class="btn-accion btn-eliminar" onclick="confirmarDesactivarCuenta('${c.id}','${c.nombre.replace(/'/g,"\\'")}')" title="Desactivar">🔒</button>`
+              : `<button class="btn-accion" onclick="reactivarCuenta('${c.id}')" title="Reactivar" style="background:var(--exito-light);color:var(--exito)">🔓</button>`}
+          </div>
+        </div>
+      </div>`).join('');
+  }).catch(err => {
+    console.error(err);
+    listaEl.innerHTML = '<p style="color:var(--alerta);font-size:.88rem">Error al cargar cuentas.</p>';
+  });
+}
+
+function confirmarDesactivarCuenta(id, nombre) {
+  Estado.cuentaADesactivarId = id;
+  Estado.gastoAEliminarId   = null;
+  Estado.ingresoAEliminarId = null;
+  document.getElementById('confirmarMensaje').innerHTML =
+    `¿Desactivar la cuenta <strong>"${nombre}"</strong>?<br><br>Se ocultará de la pestaña Cuentas pero su historial de movimientos se conserva.`;
+  document.querySelector('#modalConfirmar .btn-peligro').textContent = 'Sí, desactivar';
+  abrirModal('modalConfirmar');
+}
+window.confirmarDesactivarCuenta = confirmarDesactivarCuenta;
+
+async function reactivarCuenta(id) {
+  mostrarSpinner();
+  try {
+    await db.collection('cuentas').doc(id).update({ activa: true });
+    mostrarToast('Cuenta reactivada correctamente.', 'exito');
+    await cargarCuentas();
+    cargarSeccionCuentasAjustes();
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al reactivar la cuenta.', 'error');
+  }
+  ocultarSpinner();
+}
+window.reactivarCuenta = reactivarCuenta;
+
+function abrirModalGestionCuenta(id = null) {
+  if (Estado.usuario?.rol !== 'admin') return;
+  Estado.cuentaEditandoId = id || null;
+  const esEdicion = !!id;
+  document.getElementById('gestionCuentaTitulo').textContent = esEdicion ? 'Editar cuenta' : 'Nueva cuenta';
+
+  // Poblar select con nombres actuales
+  const sel = document.getElementById('cuentaEncargadoSelect');
+  sel.innerHTML = `
+    <option value="socio1">${nombreRol('socio1')}</option>
+    <option value="socio2">${nombreRol('socio2')}</option>
+    <option value="admin">${nombreRol('admin')}</option>`;
+
+  const campoSaldo = document.getElementById('campoSaldoInicial');
+
+  if (esEdicion) {
+    db.collection('cuentas').doc(id).get().then(doc => {
+      if (!doc.exists) return;
+      const c = doc.data();
+      document.getElementById('cuentaNombreInput').value = c.nombre || '';
+      document.getElementById('cuentaBancoInput').value  = c.banco  || '';
+      sel.value = c.encargado || 'admin';
+      campoSaldo.classList.add('hidden');
+    });
+  } else {
+    document.getElementById('cuentaNombreInput').value  = '';
+    document.getElementById('cuentaBancoInput').value   = '';
+    sel.value = 'admin';
+    campoSaldo.classList.remove('hidden');
+    document.getElementById('cuentaSaldoInicialInput').value = '';
+  }
+
+  abrirModal('modalGestionCuenta');
+}
+window.abrirModalGestionCuenta = abrirModalGestionCuenta;
+
+async function guardarCuenta() {
+  if (Estado.usuario?.rol !== 'admin') return;
+
+  const nombre    = document.getElementById('cuentaNombreInput').value.trim();
+  const banco     = document.getElementById('cuentaBancoInput').value.trim();
+  const encargado = document.getElementById('cuentaEncargadoSelect').value;
+  const id        = Estado.cuentaEditandoId;
+
+  if (!nombre)    return mostrarToast('Ingresa el nombre de la cuenta.', 'advertencia');
+  if (!encargado) return mostrarToast('Selecciona el encargado.', 'advertencia');
+
+  mostrarSpinner();
+  try {
+    if (id) {
+      await db.collection('cuentas').doc(id).update({ nombre, banco, encargado });
+      mostrarToast('Cuenta actualizada correctamente.', 'exito');
+    } else {
+      const saldoInicial = parseFloat(document.getElementById('cuentaSaldoInicialInput').value) || 0;
+      const ahora = firebase.firestore.FieldValue.serverTimestamp();
+      const docRef = await db.collection('cuentas').add({
+        nombre, banco, encargado,
+        saldoActual:    +saldoInicial.toFixed(2),
+        actualizadoEn:  ahora,
+        actualizadoPor: Estado.usuario.rol,
+        activa:         true
+      });
+      if (saldoInicial > 0) {
+        await db.collection('cuentas').doc(docRef.id).collection('movimientos').add({
+          fecha:          ahora,
+          saldoAnterior:  0,
+          saldoNuevo:     +saldoInicial.toFixed(2),
+          diferencia:     +saldoInicial.toFixed(2),
+          actualizadoPor: Estado.usuario.rol,
+          nota:           'Saldo inicial'
+        });
+      }
+      mostrarToast('Cuenta creada correctamente.', 'exito');
+    }
+    cerrarModal('modalGestionCuenta');
+    await cargarCuentas();
+    cargarSeccionCuentasAjustes();
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al guardar la cuenta.', 'error');
+  }
+  ocultarSpinner();
+}
+window.guardarCuenta = guardarCuenta;
