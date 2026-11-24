@@ -34,6 +34,9 @@ const Estado = {
   gastosResumenActual: [],
   ingresosResumenActual: [],
   pendientes:   [],
+  transferenciasMes: [],
+  _enviarFondosGananciaDisponible: 0,
+  _enviarFondosMes: null,
   graficas: { dona: null, barras: null, linea: null, cuentaHistorial: null },
 };
 
@@ -967,7 +970,7 @@ async function cargarResumen() {
 
   try {
     const ant = mesAnterior(mes, anio);
-    const [snapActual, snapAnterior, snapIngresos] = await Promise.all([
+    const [snapActual, snapAnterior, snapIngresos, snapTransf] = await Promise.all([
       db.collection('gastos')
         .where('fecha', '>=', primerDiaMes(mes, anio))
         .where('fecha', '<=', ultimoDiaMes(mes, anio))
@@ -979,15 +982,21 @@ async function cargarResumen() {
       db.collection('ingresos')
         .where('fecha', '>=', primerDiaMes(mes, anio))
         .where('fecha', '<=', ultimoDiaMes(mes, anio))
-        .orderBy('fecha').get()
+        .orderBy('fecha').get(),
+      db.collection('transferencias')
+        .where('fecha', '>=', primerDiaMes(mes, anio))
+        .where('fecha', '<=', ultimoDiaMes(mes, anio))
+        .get()
     ]);
 
     const gastosActuales   = snapActual.docs.map(d => ({ id: d.id, ...d.data() }));
     const gastosAnteriores = snapAnterior.docs.map(d => ({ id: d.id, ...d.data() }));
     const ingresosActuales = snapIngresos.docs.map(d => ({ id: d.id, ...d.data() }));
+    const transferencias   = snapTransf.docs.map(d => ({ id: d.id, ...d.data() }));
 
     Estado.gastosResumenActual   = gastosActuales;
     Estado.ingresosResumenActual = ingresosActuales;
+    Estado.transferenciasMes     = transferencias;
     renderizarResumen(gastosActuales, gastosAnteriores, ingresosActuales, mes, anio);
 
     if (Estado.usuario?.rol !== 'admin') {
@@ -1042,6 +1051,20 @@ function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
   const varIcono = variacion > 0 ? '▲' : variacion < 0 ? '▼' : '–';
   const varTexto = variacion !== 0 ? `${varIcono} ${Math.abs(variacion).toFixed(1)}%` : '– Sin cambio';
 
+  // Transferencias del mes
+  const transfActivas       = Estado.transferenciasMes.filter(t => !t.anulada);
+  const totalTransferencias = transfActivas.reduce((s, t) => s + (t.monto || 0), 0);
+  const gananciaDisponible  = +(gananciaNeta - totalTransferencias).toFixed(2);
+  const esAdmin             = Estado.usuario?.rol === 'admin';
+  const porCuentaTransf     = {};
+  transfActivas.forEach(t => {
+    const k = t.cuentaNombre || t.cuentaId;
+    porCuentaTransf[k] = (porCuentaTransf[k] || 0) + t.monto;
+  });
+  const detalleTransferencias = Object.entries(porCuentaTransf)
+    .map(([n, m]) => `<div class="desglose-origen-linea"><span>💸 ${n}</span><strong>−${formatMonto(m)}</strong></div>`)
+    .join('');
+
   // Detalle de cuentas para la tarjeta azul
   const porCuentaGasto = {};
   gastosCuentas.forEach(g => {
@@ -1071,7 +1094,20 @@ function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
     <div class="stat-card ${gananciaNeta >= 0 ? 'stat-positivo' : 'stat-negativo'}">
       <div class="stat-label">Ganancia neta</div>
       <div class="stat-valor">${formatMonto(gananciaNeta)}</div>
+      ${esAdmin ? `<button class="btn btn-secundario" onclick="abrirModalEnviarFondos()" style="margin-top:10px;width:100%;font-size:.82rem;padding:7px 10px">💸 Enviar fondos a cuenta</button>` : ''}
     </div>
+    ${totalTransferencias > 0 ? `
+    <div class="stat-card" style="border:1.5px solid rgba(231,76,60,.35)">
+      <div class="stat-label" style="color:#e74c3c">💸 Enviado a cuentas — ${nombreMes(mes)}</div>
+      <div class="stat-valor" style="color:#e74c3c">−${formatMonto(totalTransferencias)}</div>
+      ${detalleTransferencias ? `<div class="desglose-origen" style="margin-top:8px">${detalleTransferencias}</div>` : ''}
+    </div>` : ''}
+    ${esAdmin || totalTransferencias > 0 ? `
+    <div class="stat-card ${gananciaDisponible >= 0 ? 'stat-positivo' : 'stat-negativo'}" style="border-width:2px">
+      <div class="stat-label"><strong>✨ Ganancia disponible</strong></div>
+      <div class="stat-valor" style="font-size:1.6rem">${formatMonto(gananciaDisponible)}</div>
+      <div style="font-size:.75rem;color:var(--texto-muted);margin-top:2px">Ganancia neta − transferencias enviadas</div>
+    </div>` : ''}
     <div class="stat-card ${varClase}">
       <div class="stat-label">Variación gastos vs ${nombreMes(ant.mes)}</div>
       <div class="stat-valor">${varTexto}</div>
@@ -1163,6 +1199,50 @@ function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
           <tbody>${filasIngresos}</tbody>
           <tfoot><tr><td><strong>Total</strong></td><td colspan="2" style="color:var(--ingreso)"><strong>${formatMonto(totalIngresos)}</strong></td></tr></tfoot>
         </table>`;
+    }
+  }
+
+  // Tabla de transferencias del mes
+  const cardTransfEl  = document.getElementById('cardTransferenciasMes');
+  const tablaTransfEl = document.getElementById('tablaTransferenciasMes');
+  if (cardTransfEl && tablaTransfEl) {
+    const todasTransf = Estado.transferenciasMes;
+    if (!todasTransf.length && !esAdmin) {
+      cardTransfEl.classList.add('hidden');
+    } else {
+      cardTransfEl.classList.remove('hidden');
+      if (!todasTransf.length) {
+        tablaTransfEl.innerHTML =
+          `<p style="color:var(--texto-muted);font-size:.88rem;text-align:center;padding:20px">Sin transferencias en este mes.</p>
+           ${esAdmin ? '<div style="margin-top:8px;text-align:center"><button class="btn btn-primario" onclick="abrirModalEnviarFondos()">💸 Enviar fondos</button></div>' : ''}`;
+      } else {
+        const filas = todasTransf.map(t => {
+          const anulada = !!t.anulada;
+          return `<tr ${anulada ? 'style="opacity:.55;text-decoration:line-through"' : ''}>
+            <td>${t.fecha}</td>
+            <td>${t.cuentaNombre || '—'}</td>
+            <td style="white-space:nowrap;color:${anulada ? 'var(--texto-muted)' : 'var(--ingreso,#27ae60)'};font-weight:600">
+              +${formatMonto(t.monto)}${anulada ? ' (Anulada)' : ''}
+            </td>
+            <td>${t.nota || '—'}</td>
+            ${esAdmin ? `<td>${!anulada ? `<button class="btn-accion btn-eliminar" onclick="anularTransferencia('${t.id}')" title="Anular transferencia">🗑</button>` : '—'}</td>` : ''}
+          </tr>`;
+        }).join('');
+        tablaTransfEl.innerHTML = `
+          <table class="tabla-resumen">
+            <thead>
+              <tr><th>Fecha</th><th>Cuenta</th><th>Monto</th><th>Nota</th>${esAdmin ? '<th></th>' : ''}</tr>
+            </thead>
+            <tbody>${filas}</tbody>
+            <tfoot>
+              <tr>
+                <td colspan="2"><strong>Total activo</strong></td>
+                <td style="color:var(--ingreso,#27ae60)"><strong>+${formatMonto(totalTransferencias)}</strong></td>
+                <td colspan="${esAdmin ? 2 : 1}"></td>
+              </tr>
+            </tfoot>
+          </table>`;
+      }
     }
   }
 }
@@ -1542,7 +1622,7 @@ window.exportarPDF = exportarPDF;
 async function exportarPDFResumen() {
   const mes  = parseInt(document.getElementById('resumenMes').value);
   const anio = parseInt(document.getElementById('resumenAnio').value);
-  await generarPDF(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio), null, Estado.ingresosResumenActual);
+  await generarPDF(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio), null, Estado.ingresosResumenActual, Estado.transferenciasMes);
 }
 window.exportarPDFResumen = exportarPDFResumen;
 
@@ -1559,7 +1639,7 @@ async function exportarTodosPDF() {
 }
 window.exportarTodosPDF = exportarTodosPDF;
 
-async function generarPDF(gastos, desde, hasta, periodoLabel, ingresos) {
+async function generarPDF(gastos, desde, hasta, periodoLabel, ingresos, transferencias) {
   if (!gastos || !gastos.length) return mostrarToast('No hay gastos para exportar.', 'advertencia');
 
   const { jsPDF } = window.jspdf;
@@ -1673,23 +1753,51 @@ async function generarPDF(gastos, desde, hasta, periodoLabel, ingresos) {
 
   // Resumen financiero (solo cuando se exporta desde Resumen con ingresos disponibles)
   if (ingresos) {
+    const transfActPDF  = (transferencias || []).filter(t => !t.anulada);
+    const totalTransfPDF = transfActPDF.reduce((s, t) => s + (t.monto || 0), 0);
+    const gananciaDispPDF = gananciaNeta - totalTransfPDF;
+
     const yRes = doc.lastAutoTable.finalY + 12;
     doc.setFontSize(11);
     doc.setTextColor(50, 50, 50);
     doc.text('Resumen financiero del período', 14, yRes);
+
+    const bodyFinanciero = [
+      ['Ingresos', formatMonto(totalIngresosPDF)],
+      ['Gastos operativos (fondos del negocio)', formatMonto(totalFondosPDF)],
+      ['Pagado desde cuentas (capital aparte)', formatMonto(totalCuentasPDF)]
+    ];
+    if (totalTransfPDF > 0) bodyFinanciero.push(['Enviado a cuentas (transferencias)', formatMonto(totalTransfPDF)]);
+
+    const footFinanciero = [['Ganancia neta', formatMonto(gananciaNeta)]];
+    if (totalTransfPDF > 0) footFinanciero.push(['Ganancia disponible', formatMonto(gananciaDispPDF)]);
+
     doc.autoTable({
       startY: yRes + 4,
       head: [['Concepto', 'Monto']],
-      body: [
-        ['Ingresos', formatMonto(totalIngresosPDF)],
-        ['Gastos operativos (fondos del negocio)', formatMonto(totalFondosPDF)],
-        ['Pagado desde cuentas (capital aparte)', formatMonto(totalCuentasPDF)]
-      ],
-      foot: [['Ganancia neta', formatMonto(gananciaNeta)]],
+      body: bodyFinanciero,
+      foot: footFinanciero,
       headStyles: { fillColor: [50, 50, 50], textColor: 255, fontStyle: 'bold', fontSize: 9 },
       footStyles: { fillColor: gananciaNeta >= 0 ? [39, 174, 96] : [192, 57, 43], textColor: 255, fontStyle: 'bold', fontSize: 10 },
       styles: { fontSize: 9, cellPadding: 3 }
     });
+
+    if (transfActPDF.length) {
+      const yTransf = doc.lastAutoTable.finalY + 10;
+      doc.setFontSize(11);
+      doc.setTextColor(50, 50, 50);
+      doc.text('Transferencias del período', 14, yTransf);
+      doc.autoTable({
+        startY: yTransf + 4,
+        head: [['Fecha', 'Cuenta', 'Nota', 'Monto']],
+        body: transfActPDF.map(t => [t.fecha, t.cuentaNombre || '—', t.nota || '—', formatMonto(t.monto)]),
+        foot: [['', '', 'Total transferido', formatMonto(totalTransfPDF)]],
+        headStyles: { fillColor: [255, 107, 53], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+        footStyles: { fillColor: [255, 107, 53], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+        styles: { fontSize: 9, cellPadding: 3 },
+        columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } }
+      });
+    }
   }
 
   const nombreArchivo = `gastos-hr-burger-house-${(desde || new Date().toISOString()).substring(0,7)}.pdf`;
@@ -1713,7 +1821,7 @@ window.exportarExcel = exportarExcel;
 async function exportarExcelResumen() {
   const mes  = parseInt(document.getElementById('resumenMes').value);
   const anio = parseInt(document.getElementById('resumenAnio').value);
-  await generarExcel(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio), Estado.ingresosResumenActual);
+  await generarExcel(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio), Estado.ingresosResumenActual, Estado.transferenciasMes);
 }
 window.exportarExcelResumen = exportarExcelResumen;
 
@@ -1730,7 +1838,7 @@ async function exportarTodosExcel() {
 }
 window.exportarTodosExcel = exportarTodosExcel;
 
-async function generarExcel(gastos, desde, hasta, ingresos) {
+async function generarExcel(gastos, desde, hasta, ingresos, transferencias) {
   if (!gastos || !gastos.length) return mostrarToast('No hay gastos para exportar.', 'advertencia');
 
   const wb = XLSX.utils.book_new();
@@ -1795,11 +1903,30 @@ async function generarExcel(gastos, desde, hasta, ingresos) {
   }
 
   if (ingresos) {
+    const transfActXls  = (transferencias || []).filter(t => !t.anulada);
+    const totalTransfXls = transfActXls.reduce((s, t) => s + (t.monto || 0), 0);
+    const gananciaDispXls = gananciaNeta - totalTransfXls;
+
     ws2rows.push([], [], ['Resumen financiero del período'], []);
     ws2rows.push(['Ingresos', totalIngresos]);
     ws2rows.push(['Gastos operativos (fondos del negocio)', totalFondos]);
     ws2rows.push(['Pagado desde cuentas (capital aparte)', totalCuentas]);
+    if (totalTransfXls > 0) ws2rows.push(['Enviado a cuentas (transferencias)', totalTransfXls]);
     ws2rows.push(['GANANCIA NETA', gananciaNeta]);
+    if (totalTransfXls > 0) ws2rows.push(['GANANCIA DISPONIBLE', gananciaDispXls]);
+
+    if (transfActXls.length) {
+      const wsTransf = XLSX.utils.aoa_to_sheet([
+        ['Transferencias del período'],
+        [],
+        ['Fecha', 'Cuenta', 'Nota', 'Monto (USD)'],
+        ...transfActXls.map(t => [t.fecha, t.cuentaNombre || '—', t.nota || '—', t.monto || 0]),
+        [],
+        ['Total transferido', '', '', totalTransfXls]
+      ]);
+      wsTransf['!cols'] = [{ wch: 12 }, { wch: 32 }, { wch: 36 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, wsTransf, 'Transferencias');
+    }
   }
 
   const ws2 = XLSX.utils.aoa_to_sheet(ws2rows);
@@ -2755,6 +2882,11 @@ function tarjetaCuenta(cuenta) {
     ? `<button class="btn btn-primario cuenta-btn-actualizar" onclick="abrirModalDepositar('${cuenta.id}')">➕ Depositar</button>`
     : '';
 
+  const esAdminSesion = Estado.usuario?.rol === 'admin';
+  const botonEnviarFondos = esAdminSesion
+    ? `<button class="btn btn-secundario" onclick="abrirModalEnviarFondos('${cuenta.id}')" style="font-size:.82rem">💸 Enviar fondos</button>`
+    : '';
+
   return `
     <div class="cuenta-card">
       <div class="cuenta-card-header">
@@ -2766,6 +2898,7 @@ function tarjetaCuenta(cuenta) {
       ${avisoObsoleto}
       <div class="cuenta-acciones">
         ${botonActualizar}
+        ${botonEnviarFondos}
         <button class="btn btn-secundario" onclick="abrirModalHistorialCuenta('${cuenta.id}')">📋 Ver historial</button>
       </div>
     </div>`;
@@ -3046,7 +3179,7 @@ function renderizarHistorialCuenta(movimientos, cuenta) {
     return;
   }
 
-  const TIPO_ICON = { gasto: '🧾', reverso: '↩️', corrección: '🔧', ajuste: '✏️', deposito: '💵' };
+  const TIPO_ICON = { gasto: '🧾', reverso: '↩️', corrección: '🔧', ajuste: '✏️', deposito: '💵', transferencia: '💸' };
 
   listaEl.innerHTML = movimientos.map(m => {
     const fechaRaw = m.fecha?.toDate ? m.fecha.toDate() : (m.fecha ? new Date(m.fecha) : null);
@@ -3055,7 +3188,8 @@ function renderizarHistorialCuenta(movimientos, cuenta) {
     const difClase = (m.diferencia || 0) >= 0 ? 'movimiento-diff-positivo' : 'movimiento-diff-negativo';
     const difSigno = (m.diferencia || 0) >= 0 ? '+' : '-';
     const icono    = TIPO_ICON[m.tipo] || '✏️';
-    const tipoLabel = m.tipo ? m.tipo.charAt(0).toUpperCase() + m.tipo.slice(1) : 'Ajuste';
+    const tipoLabel = m.tipo === 'transferencia' ? 'Transferencia desde ganancias'
+      : m.tipo ? m.tipo.charAt(0).toUpperCase() + m.tipo.slice(1) : 'Ajuste';
 
     return `
       <div class="movimiento-item">
@@ -3261,3 +3395,229 @@ async function guardarCuenta() {
   ocultarSpinner();
 }
 window.guardarCuenta = guardarCuenta;
+
+// ================================================================
+// ENVIAR FONDOS DESDE GANANCIAS (solo admin)
+// ================================================================
+
+async function abrirModalEnviarFondos(cuentaId) {
+  if (Estado.usuario?.rol !== 'admin') return;
+
+  if (!Estado.cuentas.length) await cargarCuentas();
+  if (!Estado.cuentas.length) return mostrarToast('No hay cuentas de ahorro activas.', 'advertencia');
+
+  const sel = document.getElementById('enviarFondosCuenta');
+  sel.innerHTML = '';
+  Estado.cuentas.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = `🏦 ${c.nombre}${c.banco ? ' — ' + c.banco : ''}`;
+    sel.appendChild(opt);
+  });
+  if (cuentaId && Estado.cuentas.some(c => c.id === cuentaId)) sel.value = cuentaId;
+
+  document.getElementById('enviarFondosFecha').value = hoy();
+  document.getElementById('enviarFondosMonto').value = '';
+  document.getElementById('enviarFondosNota').value  = '';
+  document.getElementById('previewEnviarFondos').classList.add('hidden');
+  document.getElementById('advertenciaEnviarFondos').classList.add('hidden');
+  Estado._enviarFondosGananciaDisponible = 0;
+
+  const refEl = document.getElementById('enviarFondosGananciaRef');
+  refEl.innerHTML = '<div class="saldo-referencia"><span>Calculando ganancia disponible…</span></div>';
+
+  abrirModal('modalEnviarFondos');
+
+  // Cargar datos del mes actual para referencia
+  const ahora = new Date();
+  const mes   = ahora.getMonth() + 1;
+  const anio  = ahora.getFullYear();
+  Estado._enviarFondosMes = { mes, anio };
+
+  try {
+    const [snapIngresos, snapGastos, snapTransf] = await Promise.all([
+      db.collection('ingresos')
+        .where('fecha', '>=', primerDiaMes(mes, anio))
+        .where('fecha', '<=', ultimoDiaMes(mes, anio)).get(),
+      db.collection('gastos')
+        .where('fecha', '>=', primerDiaMes(mes, anio))
+        .where('fecha', '<=', ultimoDiaMes(mes, anio)).get(),
+      db.collection('transferencias')
+        .where('fecha', '>=', primerDiaMes(mes, anio))
+        .where('fecha', '<=', ultimoDiaMes(mes, anio)).get()
+    ]);
+
+    const totalIngresos = snapIngresos.docs.reduce((s, d) => s + (d.data().monto || 0), 0);
+    const totalGastosFondos = snapGastos.docs
+      .filter(d => !d.data().cuentaId)
+      .reduce((s, d) => s + (d.data().monto || 0), 0);
+    const totalTransferencias = snapTransf.docs
+      .filter(d => !d.data().anulada)
+      .reduce((s, d) => s + (d.data().monto || 0), 0);
+
+    const gananciaNeta = totalIngresos - totalGastosFondos;
+    Estado._enviarFondosGananciaDisponible = +(gananciaNeta - totalTransferencias).toFixed(2);
+
+    refEl.innerHTML = `
+      <div class="saldo-referencia" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <span>Ganancia disponible de ${nombreMes(mes)} ${anio}</span>
+        <strong style="${Estado._enviarFondosGananciaDisponible < 0 ? 'color:#e74c3c' : 'color:var(--ingreso,#27ae60)'}">
+          ${formatMonto(Estado._enviarFondosGananciaDisponible)}
+        </strong>
+      </div>`;
+    actualizarPreviewEnviarFondos();
+  } catch (err) {
+    console.error(err);
+    refEl.innerHTML = '<div class="saldo-referencia"><span style="color:var(--alerta)">No se pudo calcular la ganancia disponible</span></div>';
+  }
+}
+window.abrirModalEnviarFondos = abrirModalEnviarFondos;
+
+function actualizarPreviewEnviarFondos() {
+  const preview     = document.getElementById('previewEnviarFondos');
+  const advertencia = document.getElementById('advertenciaEnviarFondos');
+  if (!preview || !advertencia) return;
+
+  const monto    = parseFloat(document.getElementById('enviarFondosMonto').value) || 0;
+  const cuentaId = document.getElementById('enviarFondosCuenta').value;
+  const cuenta   = Estado.cuentas.find(c => c.id === cuentaId);
+
+  if (!monto || monto <= 0 || !cuenta) {
+    preview.classList.add('hidden');
+    advertencia.classList.add('hidden');
+    return;
+  }
+
+  const gananciaDisponible = Estado._enviarFondosGananciaDisponible;
+  const gananciaNueva      = +(gananciaDisponible - monto).toFixed(2);
+  const saldoCuenta        = +(cuenta.saldoActual || 0);
+  const saldoNuevo         = +(saldoCuenta + monto).toFixed(2);
+
+  preview.innerHTML = `
+    <div style="font-size:.88rem;color:var(--texto-muted);margin-bottom:4px">
+      Ganancia disponible: <strong>${formatMonto(gananciaDisponible)}</strong> − <strong>${formatMonto(monto)}</strong>
+      = <strong style="${gananciaNueva < 0 ? 'color:#e74c3c' : ''}">${formatMonto(gananciaNueva)}</strong>
+    </div>
+    <div style="font-size:.88rem;color:var(--texto-muted)">
+      Saldo de la cuenta: <strong>${formatMonto(saldoCuenta)}</strong> + <strong>${formatMonto(monto)}</strong>
+      = <strong style="color:var(--ingreso,#27ae60)">${formatMonto(saldoNuevo)}</strong>
+    </div>`;
+  preview.classList.remove('hidden');
+
+  if (monto > gananciaDisponible) {
+    advertencia.innerHTML = `⚠️ El monto supera la ganancia disponible (${formatMonto(gananciaDisponible)}). Al guardar se pedirá confirmación.`;
+    advertencia.classList.remove('hidden');
+  } else {
+    advertencia.classList.add('hidden');
+  }
+}
+window.actualizarPreviewEnviarFondos = actualizarPreviewEnviarFondos;
+
+async function guardarTransferencia() {
+  if (Estado.usuario?.rol !== 'admin') return mostrarToast('Solo el Administrador puede enviar fondos.', 'error');
+
+  const cuentaId = document.getElementById('enviarFondosCuenta').value;
+  const monto    = parseFloat(document.getElementById('enviarFondosMonto').value);
+  const fecha    = document.getElementById('enviarFondosFecha').value;
+  const nota     = document.getElementById('enviarFondosNota').value.trim();
+  const cuenta   = Estado.cuentas.find(c => c.id === cuentaId);
+
+  if (!cuentaId || !cuenta)             return mostrarToast('Selecciona una cuenta destino.', 'advertencia');
+  if (isNaN(monto) || monto <= 0)       return mostrarToast('El monto debe ser mayor a $0.00.', 'advertencia');
+  if (!fecha)                           return mostrarToast('Selecciona una fecha.', 'advertencia');
+
+  const gananciaDisponible = Estado._enviarFondosGananciaDisponible;
+  if (monto > gananciaDisponible) {
+    const { mes, anio } = Estado._enviarFondosMes || {};
+    const confirmMsg = `El monto (${formatMonto(monto)}) supera la ganancia disponible de ${mes ? nombreMes(mes) : 'este mes'} (${formatMonto(gananciaDisponible)}).\n¿Deseas continuar de todas formas?`;
+    if (!confirm(confirmMsg)) return;
+  }
+
+  const cuentaNombre = cuenta.nombre + (cuenta.banco ? ' — ' + cuenta.banco : '');
+  const montoFijo    = +monto.toFixed(2);
+
+  mostrarSpinner();
+  try {
+    const ahora     = firebase.firestore.FieldValue.serverTimestamp();
+    const transfRef = db.collection('transferencias').doc();
+    const cuentaRef = db.collection('cuentas').doc(cuentaId);
+
+    await db.runTransaction(async t => {
+      if (Estado.usuario?.rol !== 'admin') throw new Error('Solo admin puede enviar fondos.');
+
+      const snap        = await t.get(cuentaRef);
+      const saldoActual = +(snap.data()?.saldoActual || 0);
+      const saldoNuevo  = +(saldoActual + montoFijo).toFixed(2);
+
+      t.set(transfRef, {
+        cuentaId, cuentaNombre, monto: montoFijo, fecha, nota,
+        registradoPor: 'admin', anulada: false, creadoEn: ahora
+      });
+
+      t.update(cuentaRef, { saldoActual: saldoNuevo, actualizadoEn: ahora, actualizadoPor: 'admin' });
+
+      const movRef = cuentaRef.collection('movimientos').doc();
+      t.set(movRef, {
+        tipo: 'transferencia', transferenciaId: transfRef.id,
+        fecha: ahora, saldoAnterior: saldoActual, saldoNuevo,
+        diferencia: montoFijo, actualizadoPor: 'admin',
+        nota: nota || `Transferencia desde ganancias — ${fecha}`
+      });
+    });
+
+    mostrarToast(`💸 ${formatMonto(montoFijo)} enviado a ${cuenta.nombre}.`, 'exito');
+    cerrarModal('modalEnviarFondos');
+    await cargarCuentas();
+    if (Estado.tabActual === 'resumen') cargarResumen();
+
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al enviar fondos. Inténtalo de nuevo.', 'error');
+  }
+  ocultarSpinner();
+}
+window.guardarTransferencia = guardarTransferencia;
+
+async function anularTransferencia(id) {
+  if (Estado.usuario?.rol !== 'admin') return;
+  if (!confirm('¿Anular esta transferencia? Se revertirá el monto de la cuenta.')) return;
+
+  mostrarSpinner();
+  try {
+    const transfRef  = db.collection('transferencias').doc(id);
+    const transfSnap = await transfRef.get();
+    if (!transfSnap.exists) { ocultarSpinner(); return mostrarToast('Transferencia no encontrada.', 'error'); }
+    const transf = transfSnap.data();
+    if (transf.anulada) { ocultarSpinner(); return mostrarToast('Esta transferencia ya está anulada.', 'advertencia'); }
+
+    const cuentaRef = db.collection('cuentas').doc(transf.cuentaId);
+    const ahora     = firebase.firestore.FieldValue.serverTimestamp();
+
+    await db.runTransaction(async t => {
+      const snap        = await t.get(cuentaRef);
+      const saldoActual = +(snap.data()?.saldoActual || 0);
+      const saldoNuevo  = +(saldoActual - transf.monto).toFixed(2);
+
+      t.update(transfRef, { anulada: true, anuladaEn: ahora });
+      t.update(cuentaRef, { saldoActual: saldoNuevo, actualizadoEn: ahora, actualizadoPor: 'admin' });
+
+      const movRef = cuentaRef.collection('movimientos').doc();
+      t.set(movRef, {
+        tipo: 'reverso', transferenciaId: id,
+        fecha: ahora, saldoAnterior: saldoActual, saldoNuevo,
+        diferencia: -(transf.monto), actualizadoPor: 'admin',
+        nota: 'Transferencia anulada'
+      });
+    });
+
+    mostrarToast('Transferencia anulada. El saldo fue revertido.', 'exito');
+    cargarResumen();
+    if (Estado.tabActual === 'cuentas') cargarCuentas();
+
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al anular la transferencia.', 'error');
+  }
+  ocultarSpinner();
+}
+window.anularTransferencia = anularTransferencia;

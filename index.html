@@ -15,9 +15,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261128">
+  <link rel="stylesheet" href="css/style.css?v=20261201">
   <!-- Aplicar tema antes del render para evitar parpadeo -->
-  <script src="js/theme.js?v=20261128"></script>
+  <script src="js/theme.js?v=20261201"></script>
 </head>
 <body>
 
@@ -296,6 +296,12 @@
           <h3>💰 Total en cuentas de ahorro</h3>
           <div id="resumenCuentasTotal" class="cuentas-resumen-total"></div>
           <div id="resumenCuentasFecha" style="font-size:.82rem;color:var(--texto-muted);margin-top:4px"></div>
+        </div>
+
+        <!-- Transferencias del mes -->
+        <div id="cardTransferenciasMes" class="card hidden">
+          <h3>💸 Transferencias del mes</h3>
+          <div id="tablaTransferenciasMes"></div>
         </div>
 
         <!-- Mis compras pendientes (visible para socios) -->
@@ -934,6 +940,47 @@
   </div>
 
   <!-- ============================================================
+       MODAL: ENVIAR FONDOS DESDE GANANCIAS (solo admin)
+       ============================================================ -->
+  <div id="modalEnviarFondos" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="enviarFondosTitulo">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-titulo" id="enviarFondosTitulo">Enviar fondos desde ganancias</h2>
+        <button class="modal-cerrar" onclick="cerrarModal('modalEnviarFondos')" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="enviarFondosGananciaRef" class="saldo-referencia-box" style="margin-bottom:12px"></div>
+        <div class="form-grid">
+          <div class="campo campo-completo">
+            <label for="enviarFondosCuenta">Cuenta destino</label>
+            <select id="enviarFondosCuenta" onchange="actualizarPreviewEnviarFondos()"></select>
+          </div>
+          <div class="campo campo-completo campo-monto">
+            <label for="enviarFondosMonto">MONTO A ENVIAR (USD)</label>
+            <input type="number" id="enviarFondosMonto" placeholder="0.00" min="0.01" step="0.01" inputmode="decimal"
+                   style="-webkit-appearance:none;-moz-appearance:textfield;appearance:textfield"
+                   oninput="actualizarPreviewEnviarFondos()">
+          </div>
+          <div class="campo">
+            <label for="enviarFondosFecha">Fecha</label>
+            <input type="date" id="enviarFondosFecha">
+          </div>
+          <div class="campo">
+            <label for="enviarFondosNota">Nota (opcional)</label>
+            <input type="text" id="enviarFondosNota" placeholder="Referencia, destino…" maxlength="120">
+          </div>
+        </div>
+        <div id="previewEnviarFondos" class="deposito-preview hidden" style="flex-direction:column;gap:4px;align-items:flex-start;padding:10px 14px"></div>
+        <div id="advertenciaEnviarFondos" class="hidden" style="background:var(--alerta-light,#fff3cd);border:1.5px solid var(--alerta,#f39c12);border-radius:10px;padding:10px 12px;font-size:.85rem;color:var(--alerta,#e67e22);margin-top:10px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secundario" onclick="cerrarModal('modalEnviarFondos')">Cancelar</button>
+        <button class="btn btn-primario" onclick="guardarTransferencia()">💸 Enviar fondos</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
        SDKs Y LIBRERÍAS
        ============================================================ -->
   <!-- Firebase compat SDK v9.23.0 -->
@@ -948,8 +995,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
   <!-- App scripts -->
-  <script src="js/config.js?v=20261128"></script>
-  <script src="js/app.js?v=20261128"></script>
+  <script src="js/config.js?v=20261201"></script>
+  <script src="js/app.js?v=20261201"></script>
 
 </body>
 </html>

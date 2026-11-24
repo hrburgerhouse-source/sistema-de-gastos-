@@ -90,6 +90,25 @@ service cloud.firestore {
     //   allow create: if request.auth != null;
     //   allow update, delete: if false;  // historial inmutable
     // }
+    //
+    // ─────────────────────────────────────────────────────────────
+    // TRANSFERENCIAS DESDE GANANCIAS
+    // Colección: transferencias/{transfId}
+    //   Campos: cuentaId, cuentaNombre, monto (number), fecha (YYYY-MM-DD),
+    //           nota, registradoPor ("admin"), anulada (boolean),
+    //           creadoEn (timestamp), anuladaEn (timestamp, opcional)
+    //
+    // Lógica de permisos (validada en JS):
+    //   - Solo el Administrador puede crear y anular transferencias.
+    //   - Los socios pueden leer (para ver el Resumen).
+    //   - Nunca se borran documentos; se marca anulada:true.
+    // ─────────────────────────────────────────────────────────────
+    // match /transferencias/{transfId} {
+    //   allow read:   if request.auth != null;
+    //   allow create: if request.auth != null;
+    //   allow update: if request.auth != null;  // solo para anular (admin)
+    //   allow delete: if false;                 // registro permanente
+    // }
 
   }
 }
