@@ -1009,20 +1009,27 @@ function mostrarSkeletonResumen() {
 }
 
 function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
-  const totalGastos   = actuales.reduce((s, g) => s + (g.monto || 0), 0);
+  // Separar gastos por origen
+  const gastosFondos  = actuales.filter(g => !g.cuentaId);
+  const gastosCuentas = actuales.filter(g =>  g.cuentaId);
+  const anterFondos   = anteriores.filter(g => !g.cuentaId);
+
+  const totalFondos   = gastosFondos.reduce((s, g) => s + (g.monto || 0), 0);
+  const totalCuentas  = gastosCuentas.reduce((s, g) => s + (g.monto || 0), 0);
   const totalIngresos = ingresos.reduce((s, i) => s + (i.monto || 0), 0);
-  const gananciaNeta  = totalIngresos - totalGastos;
-  const totalAnterior = anteriores.reduce((s, g) => s + (g.monto || 0), 0);
-  const variacion     = totalAnterior > 0 ? (totalGastos - totalAnterior) / totalAnterior * 100 : 0;
+  const gananciaNeta  = totalIngresos - totalFondos;
+  const totalAnterior = anterFondos.reduce((s, g) => s + (g.monto || 0), 0);
+  const variacion     = totalAnterior > 0 ? (totalFondos - totalAnterior) / totalAnterior * 100 : 0;
 
   const hoyDate  = new Date();
   const diasMes  = new Date(anio, mes, 0).getDate();
   const esActual = hoyDate.getFullYear() === anio && hoyDate.getMonth() + 1 === mes;
   const diasBase = esActual ? hoyDate.getDate() : diasMes;
-  const promedio = diasBase > 0 ? totalGastos / diasBase : 0;
+  const promedio = diasBase > 0 ? totalFondos / diasBase : 0;
 
-  const porCatGastos   = {};
-  actuales.forEach(g => { porCatGastos[g.categoria] = (porCatGastos[g.categoria] || 0) + (g.monto || 0); });
+  // Categorías — solo fondos del negocio
+  const porCatGastos = {};
+  gastosFondos.forEach(g => { porCatGastos[g.categoria] = (porCatGastos[g.categoria] || 0) + (g.monto || 0); });
   const catGastosOrd = Object.entries(porCatGastos).sort((a, b) => b[1] - a[1]);
   const mayorCat     = catGastosOrd[0];
 
@@ -1035,32 +1042,31 @@ function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
   const varIcono = variacion > 0 ? '▲' : variacion < 0 ? '▼' : '–';
   const varTexto = variacion !== 0 ? `${varIcono} ${Math.abs(variacion).toFixed(1)}%` : '– Sin cambio';
 
+  // Detalle de cuentas para la tarjeta azul
+  const porCuentaGasto = {};
+  gastosCuentas.forEach(g => {
+    const k = g.cuentaNombre || g.cuentaId;
+    porCuentaGasto[k] = (porCuentaGasto[k] || 0) + (g.monto || 0);
+  });
+  const detalleCuentas = Object.entries(porCuentaGasto)
+    .map(([n, m]) => `<div class="desglose-origen-linea"><span>🏦 ${n}</span><strong>${formatMonto(m)}</strong></div>`)
+    .join('');
+
   document.getElementById('statsGrid').innerHTML = `
     <div class="stat-card stat-card-ingreso">
       <div class="stat-label">💰 Ingresos — ${nombreMes(mes)}</div>
       <div class="stat-valor">${formatMonto(totalIngresos)}</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">💸 Gastos — ${nombreMes(mes)}</div>
-      <div class="stat-valor">${formatMonto(totalGastos)}</div>
-      ${(()=>{
-        const fondos  = actuales.filter(g => !g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
-        const cuentas = actuales.filter(g =>  g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
-        if (cuentas === 0) return '';
-        const porCuentaGasto = {};
-        actuales.filter(g => g.cuentaId).forEach(g => {
-          const k = g.cuentaNombre || g.cuentaId;
-          porCuentaGasto[k] = (porCuentaGasto[k] || 0) + (g.monto || 0);
-        });
-        const detalle = Object.entries(porCuentaGasto)
-          .map(([n, m]) => `<div class="desglose-origen-linea"><span>🏦 ${n}</span><strong>${formatMonto(m)}</strong></div>`)
-          .join('');
-        return `<div class="desglose-origen">
-          <div class="desglose-origen-linea"><span>💼 Fondos del negocio</span><strong>${formatMonto(fondos)}</strong></div>
-          <div class="desglose-origen-linea"><span>🏦 Pagado desde cuentas</span><strong>${formatMonto(cuentas)}</strong></div>
-          ${detalle}
-        </div>`;
-      })()}
+      <div class="stat-label">💸 Gastos operativos — ${nombreMes(mes)}</div>
+      <div class="stat-valor">${formatMonto(totalFondos)}</div>
+    </div>
+    <div class="stat-card" style="border:2px solid #b8d4f0;box-shadow:0 0 0 2px rgba(41,128,185,0.08)">
+      <div class="stat-label" style="color:#2980b9">🏦 Pagado desde cuentas — ${nombreMes(mes)}</div>
+      <div class="stat-valor" style="color:#2980b9">${formatMonto(totalCuentas)}</div>
+      ${totalCuentas > 0 && detalleCuentas
+        ? `<div class="desglose-origen" style="margin-top:8px">${detalleCuentas}</div>`
+        : `<div style="font-size:.8rem;color:var(--texto-muted);margin-top:4px">Sin gastos desde cuentas este mes</div>`}
     </div>
     <div class="stat-card ${gananciaNeta >= 0 ? 'stat-positivo' : 'stat-negativo'}">
       <div class="stat-label">Ganancia neta</div>
@@ -1078,16 +1084,16 @@ function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
     <div class="stat-card stat-card-wide">
       <div class="stat-label">Categoría con mayor gasto</div>
       <div class="stat-valor">${mayorCat[0]}</div>
-      <div class="stat-sublabel">${formatMonto(mayorCat[1])} · ${totalGastos > 0 ? (mayorCat[1]/totalGastos*100).toFixed(1) : 0}% del total</div>
+      <div class="stat-sublabel">${formatMonto(mayorCat[1])} · ${totalFondos > 0 ? (mayorCat[1]/totalFondos*100).toFixed(1) : 0}% del total</div>
     </div>` : ''}`;
 
-  // Tabla gastos por categoría
+  // Tabla gastos operativos por categoría (fondos del negocio)
   if (!catGastosOrd.length) {
     document.getElementById('tablaCategoriasResumen').innerHTML =
       '<p style="color:var(--texto-muted);font-size:.88rem;text-align:center;padding:20px">Sin gastos en este período</p>';
   } else {
     const filasGastos = catGastosOrd.map(([cat, monto]) => {
-      const pct = totalGastos > 0 ? (monto / totalGastos * 100) : 0;
+      const pct = totalFondos > 0 ? (monto / totalFondos * 100) : 0;
       return `<tr>
         <td>${cat}</td>
         <td style="font-weight:600;white-space:nowrap">${formatMonto(monto)}</td>
@@ -1100,8 +1106,38 @@ function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
       <table class="tabla-resumen">
         <thead><tr><th>Categoría</th><th>Monto</th><th>% del total</th></tr></thead>
         <tbody>${filasGastos}</tbody>
-        <tfoot><tr><td><strong>Total</strong></td><td colspan="2"><strong>${formatMonto(totalGastos)}</strong></td></tr></tfoot>
+        <tfoot><tr><td><strong>Total</strong></td><td colspan="2"><strong>${formatMonto(totalFondos)}</strong></td></tr></tfoot>
       </table>`;
+  }
+
+  // Tabla gastos desde cuentas por categoría (solo si hay datos)
+  const cardCuentasCat  = document.getElementById('cardCuentasCategorias');
+  const tablaCuentasCat = document.getElementById('tablaCuentasCategoriasResumen');
+  if (cardCuentasCat && tablaCuentasCat) {
+    if (!gastosCuentas.length) {
+      cardCuentasCat.classList.add('hidden');
+    } else {
+      cardCuentasCat.classList.remove('hidden');
+      const porCatCuentas = {};
+      gastosCuentas.forEach(g => { porCatCuentas[g.categoria] = (porCatCuentas[g.categoria] || 0) + (g.monto || 0); });
+      const catCuentasOrd = Object.entries(porCatCuentas).sort((a, b) => b[1] - a[1]);
+      const filasCuentas = catCuentasOrd.map(([cat, monto]) => {
+        const pct = totalCuentas > 0 ? (monto / totalCuentas * 100) : 0;
+        return `<tr>
+          <td>${cat}</td>
+          <td style="font-weight:600;white-space:nowrap;color:#2980b9">${formatMonto(monto)}</td>
+          <td><div class="barra-progreso-wrapper">
+            <div class="barra-progreso-bg"><div class="barra-progreso" style="width:${pct}%;background:#2980b9"></div></div>
+            <span style="min-width:38px;font-size:.8rem">${pct.toFixed(1)}%</span>
+          </div></td></tr>`;
+      }).join('');
+      tablaCuentasCat.innerHTML = `
+        <table class="tabla-resumen">
+          <thead><tr><th>Categoría</th><th>Monto</th><th>% del total cuentas</th></tr></thead>
+          <tbody>${filasCuentas}</tbody>
+          <tfoot><tr><td><strong>Total</strong></td><td colspan="2" style="color:#2980b9"><strong>${formatMonto(totalCuentas)}</strong></td></tr></tfoot>
+        </table>`;
+    }
   }
 
   // Tabla ingresos por categoría
@@ -1193,9 +1229,9 @@ function renderizarGraficas(gastosMes, gastos6m, ingresos6m, mes, anio) {
 
   Chart.defaults.color = textoColor;
 
-  // === DONA: por categoría ===
+  // === DONA: por categoría (fondos del negocio) ===
   const porCat = {};
-  gastosMes.forEach(g => { porCat[g.categoria] = (porCat[g.categoria] || 0) + (g.monto || 0); });
+  gastosMes.filter(g => !g.cuentaId).forEach(g => { porCat[g.categoria] = (porCat[g.categoria] || 0) + (g.monto || 0); });
 
   Estado.graficas.dona = new Chart(document.getElementById('graficaDona'), {
     type: 'doughnut',
@@ -1219,18 +1255,23 @@ function renderizarGraficas(gastosMes, gastos6m, ingresos6m, mes, anio) {
     }
   });
 
-  // === BARRAS: ingresos vs gastos últimos 6 meses ===
-  const mesesGastos   = {};
-  const mesesIngresos = {};
+  // === BARRAS: ingresos vs gastos últimos 6 meses (fondos + cuentas apilados) ===
+  const mesesGastos        = {};
+  const mesesGastosCuentas = {};
+  const mesesIngresos      = {};
   for (let i = 5; i >= 0; i--) {
     const d = new Date(anio, mes - 1 - i, 1);
     const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    mesesGastos[k]   = 0;
-    mesesIngresos[k] = 0;
+    mesesGastos[k]        = 0;
+    mesesGastosCuentas[k] = 0;
+    mesesIngresos[k]      = 0;
   }
   gastos6m.forEach(g => {
     const k = g.fecha?.substring(0, 7);
-    if (k in mesesGastos) mesesGastos[k] += (g.monto || 0);
+    if (k in mesesGastos) {
+      if (!g.cuentaId) mesesGastos[k]        += (g.monto || 0);
+      else             mesesGastosCuentas[k] += (g.monto || 0);
+    }
   });
   ingresos6m.forEach(i => {
     const k = i.fecha?.substring(0, 7);
@@ -1253,15 +1294,25 @@ function renderizarGraficas(gastosMes, gastos6m, ingresos6m, mes, anio) {
           backgroundColor: 'rgba(39,174,96,0.8)',
           borderColor: '#27ae60',
           borderWidth: 1.5,
-          borderRadius: 6
+          borderRadius: 4
         },
         {
-          label: 'Gastos',
+          label: 'Gastos operativos',
           data: Object.values(mesesGastos),
           backgroundColor: 'rgba(255,107,53,0.8)',
           borderColor: '#FF6B35',
           borderWidth: 1.5,
-          borderRadius: 6
+          borderRadius: 0,
+          stack: 'gastos'
+        },
+        {
+          label: 'Desde cuentas',
+          data: Object.values(mesesGastosCuentas),
+          backgroundColor: 'rgba(41,128,185,0.75)',
+          borderColor: '#2980b9',
+          borderWidth: 1.5,
+          borderRadius: 4,
+          stack: 'gastos'
         }
       ]
     },
@@ -1286,7 +1337,7 @@ function renderizarGraficas(gastosMes, gastos6m, ingresos6m, mes, anio) {
   for (let d = 1; d <= diasMes; d++) {
     acumDia[`${anio}-${String(mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`] = 0;
   }
-  gastosMes.forEach(g => { if (g.fecha in acumDia) acumDia[g.fecha] += (g.monto || 0); });
+  gastosMes.filter(g => !g.cuentaId).forEach(g => { if (g.fecha in acumDia) acumDia[g.fecha] += (g.monto || 0); });
 
   let suma = 0;
   const diasOrdenados = Object.keys(acumDia).sort();
@@ -1488,7 +1539,7 @@ window.exportarPDF = exportarPDF;
 async function exportarPDFResumen() {
   const mes  = parseInt(document.getElementById('resumenMes').value);
   const anio = parseInt(document.getElementById('resumenAnio').value);
-  await generarPDF(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio));
+  await generarPDF(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio), null, Estado.ingresosResumenActual);
 }
 window.exportarPDFResumen = exportarPDFResumen;
 
@@ -1505,7 +1556,7 @@ async function exportarTodosPDF() {
 }
 window.exportarTodosPDF = exportarTodosPDF;
 
-async function generarPDF(gastos, desde, hasta, periodoLabel) {
+async function generarPDF(gastos, desde, hasta, periodoLabel, ingresos) {
   if (!gastos || !gastos.length) return mostrarToast('No hay gastos para exportar.', 'advertencia');
 
   const { jsPDF } = window.jspdf;
@@ -1550,50 +1601,90 @@ async function generarPDF(gastos, desde, hasta, periodoLabel) {
     columnStyles: { 2: { cellWidth: 60 }, 6: { halign: 'right', fontStyle: 'bold' } }
   });
 
-  // Resumen por categoría
-  const porCat = {};
-  gastos.forEach(g => { porCat[g.categoria] = (porCat[g.categoria]||0) + (g.monto||0); });
-  const catOrdenadas = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
-  const total = gastos.reduce((s, g) => s + (g.monto||0), 0);
-  const totalFondos  = gastos.filter(g => !g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
-  const totalCuentas = gastos.filter(g =>  g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
+  // Resumen: calcular totales por origen
+  const totalFondosPDF  = gastos.filter(g => !g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
+  const totalCuentasPDF = gastos.filter(g =>  g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
+  const totalIngresosPDF = (ingresos || []).reduce((s,i) => s+(i.monto||0), 0);
+  const gananciaNeta    = totalIngresosPDF - totalFondosPDF;
+
+  // Gastos operativos por categoría (fondos del negocio)
+  const porCatFondos = {};
+  gastos.filter(g => !g.cuentaId).forEach(g => { porCatFondos[g.categoria] = (porCatFondos[g.categoria]||0) + (g.monto||0); });
+  const catFondosOrd = Object.entries(porCatFondos).sort((a, b) => b[1] - a[1]);
 
   const yFinal = doc.lastAutoTable.finalY + 12;
   doc.setFontSize(11);
   doc.setTextColor(50, 50, 50);
-  doc.text('Resumen por Categoría', 14, yFinal);
+  doc.text('Gastos operativos por categoría', 14, yFinal);
 
   doc.autoTable({
     startY: yFinal + 4,
-    head: [['Categoría', 'Monto', '% del Total']],
-    body: catOrdenadas.map(([c, m]) => [c, formatMonto(m), `${total > 0 ? (m/total*100).toFixed(1) : 0}%`]),
-    foot: [['TOTAL', formatMonto(total), '100%']],
+    head: [['Categoría', 'Monto', '% del Total operativo']],
+    body: catFondosOrd.map(([c, m]) => [c, formatMonto(m), `${totalFondosPDF > 0 ? (m/totalFondosPDF*100).toFixed(1) : 0}%`]),
+    foot: [['Total operativo', formatMonto(totalFondosPDF), '100%']],
     headStyles: { fillColor: [255, 107, 53], textColor: 255, fontStyle: 'bold', fontSize: 9 },
     footStyles: { fillColor: [255, 107, 53], textColor: 255, fontStyle: 'bold', fontSize: 9 },
     styles: { fontSize: 9, cellPadding: 3 }
   });
 
-  // Desglose por origen (solo si hay gastos de cuentas)
-  if (totalCuentas > 0) {
+  // Gastos desde cuentas por categoría (si los hay)
+  const gastosCuentasPDF = gastos.filter(g => g.cuentaId);
+  if (gastosCuentasPDF.length) {
+    const yCuentasCat = doc.lastAutoTable.finalY + 10;
+    doc.setFontSize(11);
+    doc.setTextColor(41, 128, 185);
+    doc.text('Gastos desde cuentas por categoría', 14, yCuentasCat);
+    const porCatCuentas = {};
+    gastosCuentasPDF.forEach(g => { porCatCuentas[g.categoria] = (porCatCuentas[g.categoria]||0) + (g.monto||0); });
+    const catCuentasOrd = Object.entries(porCatCuentas).sort((a, b) => b[1] - a[1]);
+    doc.autoTable({
+      startY: yCuentasCat + 4,
+      head: [['Categoría', 'Monto', '% del total cuentas']],
+      body: catCuentasOrd.map(([c, m]) => [c, formatMonto(m), `${totalCuentasPDF > 0 ? (m/totalCuentasPDF*100).toFixed(1) : 0}%`]),
+      foot: [['Total desde cuentas', formatMonto(totalCuentasPDF), '100%']],
+      headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+      footStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+      styles: { fontSize: 9, cellPadding: 3 }
+    });
+
+    // Detalle por cuenta
     const yOrigen = doc.lastAutoTable.finalY + 10;
     doc.setFontSize(11);
     doc.setTextColor(50, 50, 50);
-    doc.text('Desglose por Origen', 14, yOrigen);
+    doc.text('Desglose por cuenta', 14, yOrigen);
     const porOrigen = {};
-    gastos.filter(g => g.cuentaId).forEach(g => {
+    gastosCuentasPDF.forEach(g => {
       const k = g.cuentaNombre || g.cuentaId;
       porOrigen[k] = (porOrigen[k] || 0) + (g.monto || 0);
     });
     doc.autoTable({
       startY: yOrigen + 4,
-      head: [['Origen', 'Monto']],
-      body: [
-        ['Fondos del negocio', formatMonto(totalFondos)],
-        ...Object.entries(porOrigen).map(([n, m]) => [`🏦 ${n}`, formatMonto(m)])
-      ],
-      foot: [['TOTAL', formatMonto(total)]],
+      head: [['Cuenta', 'Monto']],
+      body: Object.entries(porOrigen).map(([n, m]) => [n, formatMonto(m)]),
+      foot: [['Total desde cuentas', formatMonto(totalCuentasPDF)]],
       headStyles: { fillColor: [255, 107, 53], textColor: 255, fontStyle: 'bold', fontSize: 9 },
       footStyles: { fillColor: [255, 107, 53], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+      styles: { fontSize: 9, cellPadding: 3 }
+    });
+  }
+
+  // Resumen financiero (solo cuando se exporta desde Resumen con ingresos disponibles)
+  if (ingresos) {
+    const yRes = doc.lastAutoTable.finalY + 12;
+    doc.setFontSize(11);
+    doc.setTextColor(50, 50, 50);
+    doc.text('Resumen financiero del período', 14, yRes);
+    doc.autoTable({
+      startY: yRes + 4,
+      head: [['Concepto', 'Monto']],
+      body: [
+        ['Ingresos', formatMonto(totalIngresosPDF)],
+        ['Gastos operativos (fondos del negocio)', formatMonto(totalFondosPDF)],
+        ['Pagado desde cuentas (capital aparte)', formatMonto(totalCuentasPDF)]
+      ],
+      foot: [['Ganancia neta', formatMonto(gananciaNeta)]],
+      headStyles: { fillColor: [50, 50, 50], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+      footStyles: { fillColor: gananciaNeta >= 0 ? [39, 174, 96] : [192, 57, 43], textColor: 255, fontStyle: 'bold', fontSize: 10 },
       styles: { fontSize: 9, cellPadding: 3 }
     });
   }
@@ -1619,7 +1710,7 @@ window.exportarExcel = exportarExcel;
 async function exportarExcelResumen() {
   const mes  = parseInt(document.getElementById('resumenMes').value);
   const anio = parseInt(document.getElementById('resumenAnio').value);
-  await generarExcel(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio));
+  await generarExcel(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio), Estado.ingresosResumenActual);
 }
 window.exportarExcelResumen = exportarExcelResumen;
 
@@ -1636,7 +1727,7 @@ async function exportarTodosExcel() {
 }
 window.exportarTodosExcel = exportarTodosExcel;
 
-async function generarExcel(gastos, desde, hasta) {
+async function generarExcel(gastos, desde, hasta, ingresos) {
   if (!gastos || !gastos.length) return mostrarToast('No hay gastos para exportar.', 'advertencia');
 
   const wb = XLSX.utils.book_new();
@@ -1662,24 +1753,57 @@ async function generarExcel(gastos, desde, hasta) {
   ws1['!cols'] = [{ wch: 12 }, { wch: 22 }, { wch: 36 }, { wch: 15 }, { wch: 28 }, { wch: 16 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, ws1, 'Detalle de Gastos');
 
-  // === Hoja 2: Resumen por categoría ===
-  const porCat  = {};
-  gastos.forEach(g => { porCat[g.categoria] = (porCat[g.categoria]||0) + (g.monto||0); });
-  const total   = gastos.reduce((s, g) => s + (g.monto||0), 0);
-  const resumen = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
+  // === Hoja 2: Resumen ===
+  const totalFondos   = gastos.filter(g => !g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
+  const totalCuentas  = gastos.filter(g =>  g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
+  const totalIngresos = (ingresos || []).reduce((s,i) => s+(i.monto||0), 0);
+  const gananciaNeta  = totalIngresos - totalFondos;
 
-  const ws2 = XLSX.utils.aoa_to_sheet([
-    ['Categoría', 'Monto (USD)', '% del Total'],
-    ...resumen.map(([c, m]) => [c, m, total > 0 ? +((m/total*100).toFixed(2)) : 0]),
+  const porCatFondos = {};
+  gastos.filter(g => !g.cuentaId).forEach(g => { porCatFondos[g.categoria] = (porCatFondos[g.categoria]||0) + (g.monto||0); });
+  const catFondos = Object.entries(porCatFondos).sort((a, b) => b[1] - a[1]);
+
+  const ws2rows = [
+    ['Gastos operativos por categoría (Fondos del negocio)'],
     [],
-    ['TOTAL', total, 100]
-  ]);
-  ws2['!cols'] = [{ wch: 25 }, { wch: 14 }, { wch: 12 }];
-  XLSX.utils.book_append_sheet(wb, ws2, 'Resumen por Categoría');
+    ['Categoría', 'Monto (USD)', '% del Total operativo'],
+    ...catFondos.map(([c, m]) => [c, m, totalFondos > 0 ? +((m/totalFondos*100).toFixed(2)) : 0]),
+    [],
+    ['Total operativo', totalFondos, 100]
+  ];
+
+  if (totalCuentas > 0) {
+    const porCatCuentas = {};
+    gastos.filter(g => g.cuentaId).forEach(g => { porCatCuentas[g.categoria] = (porCatCuentas[g.categoria]||0) + (g.monto||0); });
+    const catCuentas = Object.entries(porCatCuentas).sort((a, b) => b[1] - a[1]);
+    const porOrigen = {};
+    gastos.filter(g => g.cuentaId).forEach(g => {
+      const k = g.cuentaNombre || g.cuentaId;
+      porOrigen[k] = (porOrigen[k] || 0) + (g.monto || 0);
+    });
+    ws2rows.push([], ['Gastos desde cuentas por categoría (capital aparte)'], []);
+    ws2rows.push(['Categoría', 'Monto (USD)', '% del total cuentas']);
+    catCuentas.forEach(([c, m]) => ws2rows.push([c, m, totalCuentas > 0 ? +((m/totalCuentas*100).toFixed(2)) : 0]));
+    ws2rows.push([], ['Total desde cuentas', totalCuentas, 100]);
+    ws2rows.push([], ['Detalle por cuenta'], []);
+    ws2rows.push(['Cuenta', 'Monto (USD)']);
+    Object.entries(porOrigen).forEach(([n, m]) => ws2rows.push([n, m]));
+    ws2rows.push([], ['Total desde cuentas', totalCuentas]);
+  }
+
+  if (ingresos) {
+    ws2rows.push([], [], ['Resumen financiero del período'], []);
+    ws2rows.push(['Ingresos', totalIngresos]);
+    ws2rows.push(['Gastos operativos (fondos del negocio)', totalFondos]);
+    ws2rows.push(['Pagado desde cuentas (capital aparte)', totalCuentas]);
+    ws2rows.push(['GANANCIA NETA', gananciaNeta]);
+  }
+
+  const ws2 = XLSX.utils.aoa_to_sheet(ws2rows);
+  ws2['!cols'] = [{ wch: 42 }, { wch: 14 }, { wch: 16 }];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Resumen');
 
   // === Hoja 3: Desglose por origen (si aplica) ===
-  const totalFondos  = gastos.filter(g => !g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
-  const totalCuentas = gastos.filter(g =>  g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
   if (totalCuentas > 0) {
     const porOrigen = {};
     gastos.filter(g => g.cuentaId).forEach(g => {
@@ -1691,7 +1815,7 @@ async function generarExcel(gastos, desde, hasta) {
       ['Fondos del negocio', totalFondos],
       ...Object.entries(porOrigen).map(([n, m]) => [n, m]),
       [],
-      ['TOTAL', total]
+      ['TOTAL DESDE CUENTAS', totalCuentas]
     ]);
     ws3['!cols'] = [{ wch: 32 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, ws3, 'Desglose por Origen');
@@ -2601,7 +2725,7 @@ function renderizarCuentas() {
   banner.innerHTML = `
     <div class="total-general-banner">
       <span>Total en todas las cuentas</span>
-      <strong>${formatMonto(totalGeneral)}</strong>
+      <strong style="${totalGeneral < 0 ? 'color:#e74c3c' : ''}">${formatMonto(totalGeneral)}</strong>
     </div>`;
 
   lista.innerHTML = Estado.cuentas.map(c => tarjetaCuenta(c)).join('');
@@ -2634,7 +2758,7 @@ function tarjetaCuenta(cuenta) {
         <div class="cuenta-nombre">${cuenta.nombre}${cuenta.banco ? `<span class="cuenta-banco"> — ${cuenta.banco}</span>` : ''}</div>
         <div class="cuenta-encargado">👤 ${nombreRol(cuenta.encargado)}</div>
       </div>
-      <div class="cuenta-saldo-grande">${formatMonto(cuenta.saldoActual || 0)}</div>
+      <div class="cuenta-saldo-grande" style="${(cuenta.saldoActual || 0) < 0 ? 'color:#e74c3c' : ''}">${formatMonto(cuenta.saldoActual || 0)}</div>
       <div class="cuenta-meta-actualizado">${metaActualizacion}</div>
       ${avisoObsoleto}
       <div class="cuenta-acciones">
@@ -2820,7 +2944,7 @@ function renderizarHistorialCuenta(movimientos, cuenta) {
     const fechaStr = fecha.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
     const horaStr  = fecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
     const difClase = (m.diferencia || 0) >= 0 ? 'movimiento-diff-positivo' : 'movimiento-diff-negativo';
-    const difSigno = (m.diferencia || 0) >= 0 ? '+' : '';
+    const difSigno = (m.diferencia || 0) >= 0 ? '+' : '-';
     const icono    = TIPO_ICON[m.tipo] || '✏️';
     const tipoLabel = m.tipo ? m.tipo.charAt(0).toUpperCase() + m.tipo.slice(1) : 'Ajuste';
 
