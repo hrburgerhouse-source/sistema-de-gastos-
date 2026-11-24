@@ -2752,7 +2752,7 @@ function tarjetaCuenta(cuenta) {
   }
 
   const botonActualizar = esEncargado
-    ? `<button class="btn btn-primario cuenta-btn-actualizar" onclick="abrirModalActualizarSaldo('${cuenta.id}')">✏️ Actualizar saldo</button>`
+    ? `<button class="btn btn-primario cuenta-btn-actualizar" onclick="abrirModalDepositar('${cuenta.id}')">➕ Depositar</button>`
     : '';
 
   return `
@@ -2772,73 +2772,144 @@ function tarjetaCuenta(cuenta) {
 }
 
 // ----------------------------------------------------------------
-// Actualizar saldo (solo el encargado)
+// Depositar / corregir saldo (solo el encargado)
 // ----------------------------------------------------------------
 
-function abrirModalActualizarSaldo(id) {
+function _poblarSaldoActual(elId, cuenta) {
+  document.getElementById(elId).innerHTML = `
+    <div class="saldo-referencia">
+      <span>Saldo actual</span>
+      <strong>${formatMonto(cuenta.saldoActual || 0)}</strong>
+    </div>`;
+}
+
+function abrirModalDepositar(id) {
   const cuenta = Estado.cuentas.find(c => c.id === id);
   if (!cuenta) return;
   if (Estado.usuario?.rol !== cuenta.encargado) {
-    return mostrarToast('Solo el encargado puede actualizar esta cuenta.', 'advertencia');
+    return mostrarToast('Solo el encargado puede depositar en esta cuenta.', 'advertencia');
   }
   Estado.cuentaEditandoId = id;
-  document.getElementById('actualizarSaldoTitulo').textContent = `Actualizar — ${cuenta.nombre}`;
-  document.getElementById('actualizarSaldoActual').innerHTML = `
-    <div class="saldo-referencia">
-      <span>Saldo actual registrado</span>
-      <strong>${formatMonto(cuenta.saldoActual || 0)}</strong>
-    </div>`;
-  document.getElementById('nuevoSaldoInput').value = '';
-  document.getElementById('notaSaldoInput').value  = '';
+  document.getElementById('actualizarSaldoTitulo').textContent = `Depositar — ${cuenta.nombre}`;
+  _poblarSaldoActual('depositarSaldoActual', cuenta);
+  _poblarSaldoActual('ajusteSaldoActual', cuenta);
+  document.getElementById('montoDepositarInput').value = '';
+  document.getElementById('notaDepositarInput').value  = '';
+  document.getElementById('nuevoSaldoInput').value     = '';
+  document.getElementById('notaAjusteInput').value     = '';
+  document.getElementById('previewDeposito').classList.add('hidden');
+  document.getElementById('previewDeposito').innerHTML = '';
+  document.getElementById('modoDepositar').classList.remove('hidden');
+  document.getElementById('modoAjuste').classList.add('hidden');
   abrirModal('modalActualizarSaldo');
 }
-window.abrirModalActualizarSaldo = abrirModalActualizarSaldo;
+window.abrirModalDepositar  = abrirModalDepositar;
+window.abrirModalActualizarSaldo = abrirModalDepositar; // alias compatibilidad
 
-async function guardarSaldo() {
+function activarModoAjuste() {
+  document.getElementById('modoDepositar').classList.add('hidden');
+  document.getElementById('modoAjuste').classList.remove('hidden');
+  const cuenta = Estado.cuentas.find(c => c.id === Estado.cuentaEditandoId);
+  document.getElementById('actualizarSaldoTitulo').textContent = `Corregir — ${cuenta?.nombre || ''}`;
+}
+window.activarModoAjuste = activarModoAjuste;
+
+function activarModoDepositar() {
+  document.getElementById('modoAjuste').classList.add('hidden');
+  document.getElementById('modoDepositar').classList.remove('hidden');
+  const cuenta = Estado.cuentas.find(c => c.id === Estado.cuentaEditandoId);
+  document.getElementById('actualizarSaldoTitulo').textContent = `Depositar — ${cuenta?.nombre || ''}`;
+}
+window.activarModoDepositar = activarModoDepositar;
+
+function actualizarPreviewDeposito() {
+  const id = Estado.cuentaEditandoId;
+  const cuenta = Estado.cuentas.find(c => c.id === id);
+  const preview = document.getElementById('previewDeposito');
+  if (!cuenta || !preview) return;
+  const monto = parseFloat(document.getElementById('montoDepositarInput').value);
+  if (!monto || monto <= 0) { preview.classList.add('hidden'); return; }
+  const saldoActual = cuenta.saldoActual || 0;
+  const saldoNuevo  = +(saldoActual + monto).toFixed(2);
+  preview.classList.remove('hidden');
+  preview.innerHTML = `${formatMonto(saldoActual)} + depósito ${formatMonto(monto)} = <strong>${formatMonto(saldoNuevo)}</strong>`;
+}
+window.actualizarPreviewDeposito = actualizarPreviewDeposito;
+
+async function guardarDeposito() {
   const id = Estado.cuentaEditandoId;
   const cuenta = Estado.cuentas.find(c => c.id === id);
   if (!cuenta) return;
   if (Estado.usuario?.rol !== cuenta.encargado) {
-    return mostrarToast('Solo el encargado puede actualizar esta cuenta.', 'advertencia');
+    return mostrarToast('Solo el encargado puede depositar en esta cuenta.', 'advertencia');
   }
-
-  const nuevoSaldo = parseFloat(document.getElementById('nuevoSaldoInput').value);
-  const nota       = document.getElementById('notaSaldoInput').value.trim();
-
-  if (isNaN(nuevoSaldo) || nuevoSaldo < 0) {
-    return mostrarToast('Ingresa un saldo válido (mayor o igual a $0.00).', 'advertencia');
+  const monto = parseFloat(document.getElementById('montoDepositarInput').value);
+  const nota  = document.getElementById('notaDepositarInput').value.trim();
+  if (!monto || monto <= 0 || isNaN(monto)) {
+    return mostrarToast('Ingresa un monto mayor a $0.00.', 'advertencia');
   }
-
-  const saldoAnterior = +(cuenta.saldoActual || 0);
-  const diferencia    = +(nuevoSaldo - saldoAnterior).toFixed(2);
-
+  const montoFijo  = +monto.toFixed(2);
+  const cuentaRef  = db.collection('cuentas').doc(id);
+  const movRef     = cuentaRef.collection('movimientos').doc();
+  const ahora      = firebase.firestore.FieldValue.serverTimestamp();
   mostrarSpinner();
   try {
-    const ahora = firebase.firestore.FieldValue.serverTimestamp();
-    await db.collection('cuentas').doc(id).update({
-      saldoActual:    +nuevoSaldo.toFixed(2),
-      actualizadoEn:  ahora,
-      actualizadoPor: Estado.usuario.rol
+    await db.runTransaction(async t => {
+      const snap        = await t.get(cuentaRef);
+      const saldoActual = +(snap.data()?.saldoActual || 0);
+      const saldoNuevo  = +(saldoActual + montoFijo).toFixed(2);
+      t.update(cuentaRef, { saldoActual: saldoNuevo, actualizadoEn: ahora, actualizadoPor: Estado.usuario.rol });
+      t.set(movRef, { tipo: 'deposito', fecha: ahora, saldoAnterior: saldoActual, saldoNuevo, diferencia: montoFijo, actualizadoPor: Estado.usuario.rol, nota });
     });
-    await db.collection('cuentas').doc(id).collection('movimientos').add({
-      tipo:           'ajuste',
-      fecha:          ahora,
-      saldoAnterior,
-      saldoNuevo:     +nuevoSaldo.toFixed(2),
-      diferencia,
-      actualizadoPor: Estado.usuario.rol,
-      nota
-    });
-    mostrarToast('Saldo actualizado correctamente.', 'exito');
+    mostrarToast('Depósito registrado correctamente.', 'exito');
     cerrarModal('modalActualizarSaldo');
     await cargarCuentas();
   } catch (err) {
     console.error(err);
-    mostrarToast('Error al guardar el saldo.', 'error');
+    mostrarToast('Error al registrar el depósito.', 'error');
   }
   ocultarSpinner();
 }
-window.guardarSaldo = guardarSaldo;
+window.guardarDeposito = guardarDeposito;
+
+async function guardarAjuste() {
+  const id = Estado.cuentaEditandoId;
+  const cuenta = Estado.cuentas.find(c => c.id === id);
+  if (!cuenta) return;
+  if (Estado.usuario?.rol !== cuenta.encargado) {
+    return mostrarToast('Solo el encargado puede corregir esta cuenta.', 'advertencia');
+  }
+  const nuevoSaldo = parseFloat(document.getElementById('nuevoSaldoInput').value);
+  const nota       = document.getElementById('notaAjusteInput').value.trim();
+  if (isNaN(nuevoSaldo) || nuevoSaldo < 0) {
+    return mostrarToast('Ingresa un saldo válido (mayor o igual a $0.00).', 'advertencia');
+  }
+  if (!nota) {
+    return mostrarToast('El motivo de la corrección es obligatorio.', 'advertencia');
+  }
+  const saldoFijo = +nuevoSaldo.toFixed(2);
+  const cuentaRef = db.collection('cuentas').doc(id);
+  const movRef    = cuentaRef.collection('movimientos').doc();
+  const ahora     = firebase.firestore.FieldValue.serverTimestamp();
+  mostrarSpinner();
+  try {
+    await db.runTransaction(async t => {
+      const snap        = await t.get(cuentaRef);
+      const saldoActual = +(snap.data()?.saldoActual || 0);
+      const diferencia  = +(saldoFijo - saldoActual).toFixed(2);
+      t.update(cuentaRef, { saldoActual: saldoFijo, actualizadoEn: ahora, actualizadoPor: Estado.usuario.rol });
+      t.set(movRef, { tipo: 'ajuste', fecha: ahora, saldoAnterior: saldoActual, saldoNuevo: saldoFijo, diferencia, actualizadoPor: Estado.usuario.rol, nota });
+    });
+    mostrarToast('Saldo corregido correctamente.', 'exito');
+    cerrarModal('modalActualizarSaldo');
+    await cargarCuentas();
+  } catch (err) {
+    console.error(err);
+    mostrarToast('Error al guardar la corrección.', 'error');
+  }
+  ocultarSpinner();
+}
+window.guardarAjuste = guardarAjuste;
 
 // ----------------------------------------------------------------
 // Historial de cuenta
@@ -2975,7 +3046,7 @@ function renderizarHistorialCuenta(movimientos, cuenta) {
     return;
   }
 
-  const TIPO_ICON = { gasto: '🧾', reverso: '↩️', corrección: '🔧', ajuste: '✏️' };
+  const TIPO_ICON = { gasto: '🧾', reverso: '↩️', corrección: '🔧', ajuste: '✏️', deposito: '💵' };
 
   listaEl.innerHTML = movimientos.map(m => {
     const fechaRaw = m.fecha?.toDate ? m.fecha.toDate() : (m.fecha ? new Date(m.fecha) : null);

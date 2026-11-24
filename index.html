@@ -15,9 +15,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261127">
+  <link rel="stylesheet" href="css/style.css?v=20261128">
   <!-- Aplicar tema antes del render para evitar parpadeo -->
-  <script src="js/theme.js?v=20261127"></script>
+  <script src="js/theme.js?v=20261128"></script>
 </head>
 <body>
 
@@ -806,34 +806,69 @@
   </div>
 
   <!-- ============================================================
-       MODAL: ACTUALIZAR SALDO DE CUENTA
+       MODAL: DEPOSITAR / CORREGIR SALDO DE CUENTA
        ============================================================ -->
   <div id="modalActualizarSaldo" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="actualizarSaldoTitulo">
     <div class="modal">
       <div class="modal-header">
-        <h2 class="modal-titulo" id="actualizarSaldoTitulo">Actualizar saldo</h2>
+        <h2 class="modal-titulo" id="actualizarSaldoTitulo">Depositar</h2>
         <button class="modal-cerrar" onclick="cerrarModal('modalActualizarSaldo')" aria-label="Cerrar">✕</button>
       </div>
-      <div class="modal-body">
-        <div id="actualizarSaldoActual" class="saldo-referencia-box"></div>
-        <p style="font-size:.82rem;color:var(--texto-muted);margin-bottom:16px">
-          Ingresa el saldo total disponible en la cuenta <strong>en este momento</strong>. Este valor reemplazará el saldo actual.
+
+      <!-- MODO DEPÓSITO (default) -->
+      <div id="modoDepositar">
+        <div class="modal-body">
+          <div id="depositarSaldoActual" class="saldo-referencia-box"></div>
+          <div class="form-grid">
+            <div class="campo campo-completo campo-monto">
+              <label for="montoDepositarInput">MONTO A DEPOSITAR (USD)</label>
+              <input type="number" id="montoDepositarInput" placeholder="0.00" min="0.01" step="0.01" inputmode="decimal" oninput="actualizarPreviewDeposito()">
+            </div>
+          </div>
+          <div id="previewDeposito" class="deposito-preview hidden"></div>
+          <div class="form-grid">
+            <div class="campo campo-completo">
+              <label for="notaDepositarInput">NOTA (OPCIONAL)</label>
+              <input type="text" id="notaDepositarInput" placeholder="Ej: Depósito de la semana" maxlength="120">
+            </div>
+          </div>
+          <p style="font-size:.78rem;color:var(--texto-muted);margin-top:8px">
+            Ingresa solo el monto que vas a depositar. Se sumará al saldo actual.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secundario" onclick="cerrarModal('modalActualizarSaldo')">Cancelar</button>
+          <button class="btn btn-primario" onclick="guardarDeposito()">💵 Depositar</button>
+        </div>
+        <p class="corregir-saldo-link">
+          <a onclick="activarModoAjuste()">¿El saldo no cuadra con el banco? Corregir saldo total</a>
         </p>
-        <div class="form-grid">
-          <div class="campo campo-completo campo-monto">
-            <label for="nuevoSaldoInput">Nuevo saldo total (USD)</label>
-            <input type="number" id="nuevoSaldoInput" placeholder="0.00" min="0" step="0.01" inputmode="decimal">
+      </div>
+
+      <!-- MODO CORRECCIÓN (oculto por defecto) -->
+      <div id="modoAjuste" class="hidden">
+        <div class="modal-body">
+          <div id="ajusteSaldoActual" class="saldo-referencia-box"></div>
+          <div class="form-grid">
+            <div class="campo campo-completo campo-monto">
+              <label for="nuevoSaldoInput">SALDO TOTAL EN EL BANCO (USD)</label>
+              <input type="number" id="nuevoSaldoInput" placeholder="0.00" min="0" step="0.01" inputmode="decimal">
+            </div>
+            <div class="campo campo-completo">
+              <label for="notaAjusteInput">MOTIVO DE CORRECCIÓN <span style="color:var(--alerta)">*</span></label>
+              <input type="text" id="notaAjusteInput" placeholder="Ej: comisión del banco, intereses" maxlength="120">
+            </div>
           </div>
-          <div class="campo campo-completo">
-            <label for="notaSaldoInput">Nota (opcional)</label>
-            <input type="text" id="notaSaldoInput" placeholder="Ej: después de depósito de la semana" maxlength="120">
-          </div>
+          <p style="font-size:.78rem;color:var(--texto-muted);margin-top:8px">
+            Este valor reemplazará el saldo registrado. Úsalo solo para corregir diferencias con el banco.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secundario" onclick="activarModoDepositar()">← Volver</button>
+          <button class="btn btn-primario" onclick="guardarAjuste()">💾 Guardar corrección</button>
         </div>
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-secundario" onclick="cerrarModal('modalActualizarSaldo')">Cancelar</button>
-        <button class="btn btn-primario"   onclick="guardarSaldo()">💾 Guardar</button>
-      </div>
+
     </div>
   </div>
 
@@ -913,8 +948,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
   <!-- App scripts -->
-  <script src="js/config.js?v=20261127"></script>
-  <script src="js/app.js?v=20261127"></script>
+  <script src="js/config.js?v=20261128"></script>
+  <script src="js/app.js?v=20261128"></script>
 
 </body>
 </html>
