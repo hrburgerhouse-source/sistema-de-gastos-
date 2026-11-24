@@ -206,7 +206,7 @@ async function iniciarSesion(rol) {
   document.getElementById('appPrincipal').classList.remove('hidden');
 
   try {
-    await Promise.all([cargarCategorias(), cargarGastosMesActual(), mostrarPanelDeudas()]);
+    await Promise.all([cargarCategorias(), cargarGastosMesActual(), mostrarPanelDeudas(), cargarCuentas()]);
   } catch (err) {
     console.error(err);
     mostrarToast('Error al cargar datos. Verifica tu conexión a internet.', 'error');
@@ -332,6 +332,54 @@ function poblarFiltroRegistradoPor() {
   sel.add(new Option(nombreRol('admin'), 'admin'));
   sel.value = val;
 }
+
+function poblarFiltroOrigen() {
+  const sel = document.getElementById('filtroOrigen');
+  if (!sel) return;
+  const val = sel.value;
+  while (sel.options.length) sel.remove(0);
+  sel.add(new Option('Todos', ''));
+  sel.add(new Option('💼 Fondos del negocio', 'fondos'));
+  Estado.cuentas.forEach(c => {
+    sel.add(new Option(`🏦 ${c.nombre}${c.banco ? ' — ' + c.banco : ''}`, c.id));
+  });
+  const validValues = new Set(['', 'fondos', ...Estado.cuentas.map(c => c.id)]);
+  sel.value = validValues.has(val) ? val : '';
+}
+
+function poblarSelectOrigenCuenta() {
+  const sel = document.getElementById('gastoOrigenCuenta');
+  if (!sel) return;
+  const val = sel.value;
+  while (sel.options.length) sel.remove(0);
+  sel.add(new Option('💼 Fondos del negocio (normal)', ''));
+  Estado.cuentas.forEach(c => {
+    sel.add(new Option(`🏦 ${c.nombre}${c.banco ? ' — ' + c.banco : ''}`, c.id));
+  });
+  // Restore selection only if still valid
+  if (val && Estado.cuentas.some(c => c.id === val)) sel.value = val;
+  else sel.value = '';
+}
+window.actualizarPreviewOrigenCuenta = function() {
+  const sel     = document.getElementById('gastoOrigenCuenta');
+  const preview = document.getElementById('gastoCuentaPreview');
+  if (!sel || !preview) return;
+  const cuentaId = sel.value;
+  if (!cuentaId) { preview.classList.add('hidden'); return; }
+  const cuenta = Estado.cuentas.find(c => c.id === cuentaId);
+  if (!cuenta) { preview.classList.add('hidden'); return; }
+  const monto      = parseFloat(document.getElementById('gastoMonto').value) || 0;
+  const saldoAct   = +(cuenta.saldoActual || 0);
+  const saldoNuevo = +(saldoAct - monto).toFixed(2);
+  if (saldoNuevo < 0) {
+    preview.innerHTML = `⚠️ El saldo quedará negativo: ${formatMonto(saldoAct)} → <strong style="color:var(--alerta)">${formatMonto(saldoNuevo)}</strong>`;
+    preview.className = 'cuenta-preview cuenta-preview-alerta';
+  } else {
+    preview.innerHTML = `Saldo actual: ${formatMonto(saldoAct)} → quedará en <strong>${formatMonto(saldoNuevo)}</strong>`;
+    preview.className = 'cuenta-preview';
+  }
+  preview.classList.remove('hidden');
+};
 
 function abrirEditarNombre(rol) {
   Estado.nombreEditandoRol = rol;
@@ -471,16 +519,20 @@ function aplicarFiltrosClienteSide() {
   const registradoPor = document.getElementById('filtroRegistradoPor').value;
   const metodoPago    = document.getElementById('filtroMetodoPago')?.value || '';
   const texto         = (document.getElementById('filtroTexto')?.value || '').trim().toLowerCase();
+  const origen        = document.getElementById('filtroOrigen')?.value || '';
 
   let gastos = Estado.gastos;
   if (categoria)     gastos = gastos.filter(g => g.categoria === categoria);
   if (registradoPor) gastos = gastos.filter(g => g.registradoPor === registradoPor);
   if (metodoPago)    gastos = gastos.filter(g => g.metodoPago === metodoPago);
+  if (origen === 'fondos') gastos = gastos.filter(g => !g.cuentaId);
+  else if (origen)         gastos = gastos.filter(g => g.cuentaId === origen);
   if (texto) {
     gastos = gastos.filter(g =>
-      (g.descripcion || '').toLowerCase().includes(texto) ||
-      (g.categoria   || '').toLowerCase().includes(texto) ||
-      (g.notas       || '').toLowerCase().includes(texto)
+      (g.descripcion   || '').toLowerCase().includes(texto) ||
+      (g.categoria     || '').toLowerCase().includes(texto) ||
+      (g.notas         || '').toLowerCase().includes(texto) ||
+      (g.cuentaNombre  || '').toLowerCase().includes(texto)
     );
   }
   renderizarListaGastos(gastos);
@@ -508,6 +560,8 @@ function limpiarFiltros() {
   if (textoEl) textoEl.value = '';
   const metodoEl = document.getElementById('filtroMetodoPago');
   if (metodoEl) metodoEl.value = '';
+  const origenEl = document.getElementById('filtroOrigen');
+  if (origenEl) origenEl.value = '';
   const periodoEl = document.getElementById('filtroPeriodoRapido');
   if (periodoEl) periodoEl.value = 'mes-actual';
   cargarGastosConFiltros();
@@ -615,6 +669,7 @@ function tarjetaGasto(g, esAdmin) {
         <div class="gasto-meta">
           <span class="gasto-metodo">${iconoMetodoPago(g.metodoPago)} ${g.metodoPago || ''}</span>
           <span class="gasto-registrado">· ${nombreRol(g.registradoPor)}</span>
+          ${g.cuentaId ? `<span class="gasto-origen-badge">🏦 ${g.cuentaNombre || 'Cuenta'}</span>` : ''}
           ${g.notas ? `<span class="gasto-notas">· 📝 ${g.notas}</span>` : ''}
         </div>
       </div>
@@ -639,6 +694,8 @@ function abrirModalNuevoGasto() {
   document.getElementById('formGasto').reset();
   document.getElementById('gastoFecha').value = hoy();
   poblarSelectCategorias();
+  poblarSelectOrigenCuenta();
+  document.getElementById('gastoCuentaPreview')?.classList.add('hidden');
   abrirModal('modalGasto');
 }
 window.abrirModalNuevoGasto = abrirModalNuevoGasto;
@@ -649,12 +706,16 @@ function editarGasto(id) {
   Estado.gastoEditandoId = id;
   document.getElementById('modalGastoTitulo').textContent = 'Editar Gasto';
   poblarSelectCategorias();
+  poblarSelectOrigenCuenta();
   document.getElementById('gastoFecha').value        = g.fecha       || hoy();
   document.getElementById('gastoCategoria').value    = g.categoria   || '';
   document.getElementById('gastoDescripcion').value  = g.descripcion || '';
   document.getElementById('gastoMonto').value        = g.monto       || '';
   document.getElementById('gastoMetodoPago').value   = g.metodoPago  || '';
   document.getElementById('gastoNotas').value        = g.notas       || '';
+  const selOrigen = document.getElementById('gastoOrigenCuenta');
+  if (selOrigen) selOrigen.value = g.cuentaId || '';
+  actualizarPreviewOrigenCuenta();
   abrirModal('modalGasto');
 }
 window.editarGasto = editarGasto;
@@ -672,15 +733,22 @@ async function guardarGasto() {
   const monto       = parseFloat(document.getElementById('gastoMonto').value);
   const metodoPago  = document.getElementById('gastoMetodoPago').value;
   const notas       = document.getElementById('gastoNotas').value.trim();
+  const cuentaId    = document.getElementById('gastoOrigenCuenta')?.value || null;
+  const cuentaObj   = cuentaId ? Estado.cuentas.find(c => c.id === cuentaId) : null;
+  const cuentaNombre = cuentaObj
+    ? (cuentaObj.nombre + (cuentaObj.banco ? ' — ' + cuentaObj.banco : ''))
+    : null;
 
-  if (!fecha)                          return mostrarToast('Selecciona una fecha.', 'advertencia');
-  if (!categoria)                      return mostrarToast('Selecciona una categoría.', 'advertencia');
-  if (!descripcion)                    return mostrarToast('Ingresa una descripción.', 'advertencia');
-  if (isNaN(monto) || monto <= 0)      return mostrarToast('El monto debe ser mayor a $0.00.', 'advertencia');
-  if (!metodoPago)                     return mostrarToast('Selecciona el método de pago.', 'advertencia');
+  if (!fecha)                     return mostrarToast('Selecciona una fecha.', 'advertencia');
+  if (!categoria)                 return mostrarToast('Selecciona una categoría.', 'advertencia');
+  if (!descripcion)               return mostrarToast('Ingresa una descripción.', 'advertencia');
+  if (isNaN(monto) || monto <= 0) return mostrarToast('El monto debe ser mayor a $0.00.', 'advertencia');
+  if (!metodoPago)                return mostrarToast('Selecciona el método de pago.', 'advertencia');
 
   const datos = {
     fecha, categoria, descripcion, monto, metodoPago, notas,
+    cuentaId:     cuentaId     || null,
+    cuentaNombre: cuentaNombre || null,
     registradoPor: Estado.usuario.rol,
     timestamp: firebase.firestore.FieldValue.serverTimestamp()
   };
@@ -688,10 +756,96 @@ async function guardarGasto() {
   mostrarSpinner();
   try {
     if (Estado.gastoEditandoId) {
-      await db.collection('gastos').doc(Estado.gastoEditandoId).update(datos);
+      const gastoAnterior   = Estado.gastos.find(x => x.id === Estado.gastoEditandoId);
+      const cuentaIdAnterior = gastoAnterior?.cuentaId || null;
+      const montoAnterior    = gastoAnterior?.monto    || 0;
+      const mismaCuenta     = cuentaIdAnterior === cuentaId;
+      const mismoMonto      = montoAnterior === monto;
+
+      if (!cuentaIdAnterior && !cuentaId) {
+        // Ninguna cuenta involucrada — simple update
+        await db.collection('gastos').doc(Estado.gastoEditandoId).update(datos);
+      } else if (mismaCuenta && mismoMonto) {
+        // Misma cuenta, mismo monto — sin cambio de saldo
+        await db.collection('gastos').doc(Estado.gastoEditandoId).update(datos);
+      } else if (mismaCuenta && cuentaId) {
+        // Misma cuenta, monto diferente — ajustar por diferencia
+        const ahora = firebase.firestore.FieldValue.serverTimestamp();
+        await db.runTransaction(async t => {
+          const gastoRef  = db.collection('gastos').doc(Estado.gastoEditandoId);
+          const cuentaRef = db.collection('cuentas').doc(cuentaId);
+          const snap      = await t.get(cuentaRef);
+          const saldoAct  = +(snap.data()?.saldoActual || 0);
+          const diff      = montoAnterior - monto; // restore old, deduct new
+          const saldoNvo  = +(saldoAct + diff).toFixed(2);
+          t.update(gastoRef, datos);
+          t.update(cuentaRef, { saldoActual: saldoNvo, actualizadoEn: ahora, actualizadoPor: Estado.usuario.rol });
+          const movRef = db.collection('cuentas').doc(cuentaId).collection('movimientos').doc();
+          t.set(movRef, {
+            tipo: 'corrección', gastoId: Estado.gastoEditandoId,
+            fecha: ahora, saldoAnterior: saldoAct, saldoNuevo: saldoNvo,
+            diferencia: +(saldoNvo - saldoAct).toFixed(2),
+            actualizadoPor: Estado.usuario.rol, nota: `Corrección: ${descripcion}`
+          });
+        });
+      } else {
+        // Cuenta diferente (una o ambas pueden ser null)
+        const ahora = firebase.firestore.FieldValue.serverTimestamp();
+        await db.runTransaction(async t => {
+          const gastoRef = db.collection('gastos').doc(Estado.gastoEditandoId);
+          if (cuentaIdAnterior) {
+            const refAnt  = db.collection('cuentas').doc(cuentaIdAnterior);
+            const snapAnt = await t.get(refAnt);
+            const sAnt    = +(snapAnt.data()?.saldoActual || 0);
+            const sAntNvo = +(sAnt + montoAnterior).toFixed(2);
+            t.update(refAnt, { saldoActual: sAntNvo, actualizadoEn: ahora, actualizadoPor: Estado.usuario.rol });
+            t.set(db.collection('cuentas').doc(cuentaIdAnterior).collection('movimientos').doc(), {
+              tipo: 'corrección', gastoId: Estado.gastoEditandoId,
+              fecha: ahora, saldoAnterior: sAnt, saldoNuevo: sAntNvo,
+              diferencia: +(sAntNvo - sAnt).toFixed(2),
+              actualizadoPor: Estado.usuario.rol,
+              nota: `Corrección: ${gastoAnterior?.descripcion || descripcion}`
+            });
+          }
+          if (cuentaId) {
+            const refNva  = db.collection('cuentas').doc(cuentaId);
+            const snapNva = await t.get(refNva);
+            const sNva    = +(snapNva.data()?.saldoActual || 0);
+            const sNvaNvo = +(sNva - monto).toFixed(2);
+            t.update(refNva, { saldoActual: sNvaNvo, actualizadoEn: ahora, actualizadoPor: Estado.usuario.rol });
+            t.set(db.collection('cuentas').doc(cuentaId).collection('movimientos').doc(), {
+              tipo: 'corrección', gastoId: Estado.gastoEditandoId,
+              fecha: ahora, saldoAnterior: sNva, saldoNuevo: sNvaNvo,
+              diferencia: +(sNvaNvo - sNva).toFixed(2),
+              actualizadoPor: Estado.usuario.rol, nota: `Corrección: ${descripcion}`
+            });
+          }
+          t.update(gastoRef, datos);
+        });
+      }
       mostrarToast('Gasto actualizado correctamente.', 'exito');
     } else {
-      await db.collection('gastos').add(datos);
+      // Nuevo gasto
+      if (cuentaId) {
+        const ahora = firebase.firestore.FieldValue.serverTimestamp();
+        await db.runTransaction(async t => {
+          const cuentaRef = db.collection('cuentas').doc(cuentaId);
+          const snap      = await t.get(cuentaRef);
+          const saldoAnt  = +(snap.data()?.saldoActual || 0);
+          const saldoNvo  = +(saldoAnt - monto).toFixed(2);
+          const gastoRef  = db.collection('gastos').doc();
+          t.set(gastoRef, datos);
+          t.update(cuentaRef, { saldoActual: saldoNvo, actualizadoEn: ahora, actualizadoPor: Estado.usuario.rol });
+          t.set(db.collection('cuentas').doc(cuentaId).collection('movimientos').doc(), {
+            tipo: 'gasto', gastoId: gastoRef.id,
+            fecha: ahora, saldoAnterior: saldoAnt, saldoNuevo: saldoNvo,
+            diferencia: +(saldoNvo - saldoAnt).toFixed(2),
+            actualizadoPor: Estado.usuario.rol, nota: descripcion
+          });
+        });
+      } else {
+        await db.collection('gastos').add(datos);
+      }
       mostrarToast('Gasto registrado correctamente.', 'exito');
     }
     cerrarModalGasto();
@@ -758,15 +912,40 @@ async function ejecutarEliminar() {
 
   mostrarSpinner();
   try {
-    await db.collection(esIngreso ? 'ingresos' : 'gastos').doc(id).delete();
-    mostrarToast(`${esIngreso ? 'Ingreso' : 'Gasto'} eliminado.`, 'exito');
-    cerrarModal('modalConfirmar');
-    if (esIngreso) {
-      Estado.ingresoAEliminarId = null;
-      await cargarIngresosConFiltros();
-    } else {
+    if (!esIngreso) {
+      const gasto = Estado.gastos.find(x => x.id === id);
+      if (gasto?.cuentaId) {
+        // Reversal transaction: restore saldo and log a 'reverso' movement
+        const ahora = firebase.firestore.FieldValue.serverTimestamp();
+        await db.runTransaction(async t => {
+          const gastoRef  = db.collection('gastos').doc(id);
+          const cuentaRef = db.collection('cuentas').doc(gasto.cuentaId);
+          const snap      = await t.get(cuentaRef);
+          const saldoAct  = +(snap.data()?.saldoActual || 0);
+          const saldoNvo  = +(saldoAct + (gasto.monto || 0)).toFixed(2);
+          t.delete(gastoRef);
+          t.update(cuentaRef, { saldoActual: saldoNvo, actualizadoEn: ahora, actualizadoPor: Estado.usuario.rol });
+          t.set(db.collection('cuentas').doc(gasto.cuentaId).collection('movimientos').doc(), {
+            tipo: 'reverso', gastoId: id,
+            fecha: ahora, saldoAnterior: saldoAct, saldoNuevo: saldoNvo,
+            diferencia: +(saldoNvo - saldoAct).toFixed(2),
+            actualizadoPor: Estado.usuario.rol,
+            nota: `Gasto eliminado: ${gasto.descripcion || ''}`
+          });
+        });
+      } else {
+        await db.collection('gastos').doc(id).delete();
+      }
+      mostrarToast('Gasto eliminado.', 'exito');
+      cerrarModal('modalConfirmar');
       Estado.gastoAEliminarId = null;
       await cargarGastosConFiltros();
+    } else {
+      await db.collection('ingresos').doc(id).delete();
+      mostrarToast('Ingreso eliminado.', 'exito');
+      cerrarModal('modalConfirmar');
+      Estado.ingresoAEliminarId = null;
+      await cargarIngresosConFiltros();
     }
   } catch (err) {
     console.error(err);
@@ -864,6 +1043,24 @@ function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
     <div class="stat-card">
       <div class="stat-label">💸 Gastos — ${nombreMes(mes)}</div>
       <div class="stat-valor">${formatMonto(totalGastos)}</div>
+      ${(()=>{
+        const fondos  = actuales.filter(g => !g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
+        const cuentas = actuales.filter(g =>  g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
+        if (cuentas === 0) return '';
+        const porCuentaGasto = {};
+        actuales.filter(g => g.cuentaId).forEach(g => {
+          const k = g.cuentaNombre || g.cuentaId;
+          porCuentaGasto[k] = (porCuentaGasto[k] || 0) + (g.monto || 0);
+        });
+        const detalle = Object.entries(porCuentaGasto)
+          .map(([n, m]) => `<div class="desglose-origen-linea"><span>🏦 ${n}</span><strong>${formatMonto(m)}</strong></div>`)
+          .join('');
+        return `<div class="desglose-origen">
+          <div class="desglose-origen-linea"><span>💼 Fondos del negocio</span><strong>${formatMonto(fondos)}</strong></div>
+          <div class="desglose-origen-linea"><span>🏦 Pagado desde cuentas</span><strong>${formatMonto(cuentas)}</strong></div>
+          ${detalle}
+        </div>`;
+      })()}
     </div>
     <div class="stat-card ${gananciaNeta >= 0 ? 'stat-positivo' : 'stat-negativo'}">
       <div class="stat-label">Ganancia neta</div>
@@ -1336,20 +1533,21 @@ async function generarPDF(gastos, desde, hasta, periodoLabel) {
     g.categoria   || '',
     g.descripcion || '',
     g.metodoPago  || '',
+    g.cuentaId ? `🏦 ${g.cuentaNombre || 'Cuenta'}` : '💼 Fondos',
     nombreRol(g.registradoPor),
     formatMonto(g.monto)
   ]);
 
   doc.autoTable({
     startY: 42,
-    head: [['Fecha', 'Categoría', 'Descripción', 'Método', 'Registrado por', 'Monto']],
+    head: [['Fecha', 'Categoría', 'Descripción', 'Método', 'Origen', 'Registrado por', 'Monto']],
     body: filas,
-    foot: [['', '', '', '', 'TOTAL', formatMonto(gastos.reduce((s, g) => s + (g.monto||0), 0))]],
+    foot: [['', '', '', '', '', 'TOTAL', formatMonto(gastos.reduce((s, g) => s + (g.monto||0), 0))]],
     headStyles: { fillColor: [255, 107, 53], textColor: 255, fontStyle: 'bold', fontSize: 9 },
     footStyles: { fillColor: [255, 107, 53], textColor: 255, fontStyle: 'bold', fontSize: 10 },
     alternateRowStyles: { fillColor: [252, 252, 252] },
     styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
-    columnStyles: { 2: { cellWidth: 70 }, 5: { halign: 'right', fontStyle: 'bold' } }
+    columnStyles: { 2: { cellWidth: 60 }, 6: { halign: 'right', fontStyle: 'bold' } }
   });
 
   // Resumen por categoría
@@ -1357,6 +1555,8 @@ async function generarPDF(gastos, desde, hasta, periodoLabel) {
   gastos.forEach(g => { porCat[g.categoria] = (porCat[g.categoria]||0) + (g.monto||0); });
   const catOrdenadas = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
   const total = gastos.reduce((s, g) => s + (g.monto||0), 0);
+  const totalFondos  = gastos.filter(g => !g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
+  const totalCuentas = gastos.filter(g =>  g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
 
   const yFinal = doc.lastAutoTable.finalY + 12;
   doc.setFontSize(11);
@@ -1372,6 +1572,31 @@ async function generarPDF(gastos, desde, hasta, periodoLabel) {
     footStyles: { fillColor: [255, 107, 53], textColor: 255, fontStyle: 'bold', fontSize: 9 },
     styles: { fontSize: 9, cellPadding: 3 }
   });
+
+  // Desglose por origen (solo si hay gastos de cuentas)
+  if (totalCuentas > 0) {
+    const yOrigen = doc.lastAutoTable.finalY + 10;
+    doc.setFontSize(11);
+    doc.setTextColor(50, 50, 50);
+    doc.text('Desglose por Origen', 14, yOrigen);
+    const porOrigen = {};
+    gastos.filter(g => g.cuentaId).forEach(g => {
+      const k = g.cuentaNombre || g.cuentaId;
+      porOrigen[k] = (porOrigen[k] || 0) + (g.monto || 0);
+    });
+    doc.autoTable({
+      startY: yOrigen + 4,
+      head: [['Origen', 'Monto']],
+      body: [
+        ['Fondos del negocio', formatMonto(totalFondos)],
+        ...Object.entries(porOrigen).map(([n, m]) => [`🏦 ${n}`, formatMonto(m)])
+      ],
+      foot: [['TOTAL', formatMonto(total)]],
+      headStyles: { fillColor: [255, 107, 53], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+      footStyles: { fillColor: [255, 107, 53], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+      styles: { fontSize: 9, cellPadding: 3 }
+    });
+  }
 
   const nombreArchivo = `gastos-hr-burger-house-${(desde || new Date().toISOString()).substring(0,7)}.pdf`;
   doc.save(nombreArchivo);
@@ -1422,17 +1647,19 @@ async function generarExcel(gastos, desde, hasta) {
     [header],
     [`Generado: ${new Date().toLocaleDateString('es-ES')}`],
     [],
-    ['Fecha', 'Categoría', 'Descripción', 'Método de Pago', 'Registrado por', 'Monto (USD)'],
+    ['Fecha', 'Categoría', 'Descripción', 'Método de Pago', 'Origen', 'Registrado por', 'Monto (USD)'],
     ...gastos.map(g => [
       g.fecha || '', g.categoria || '', g.descripcion || '',
-      g.metodoPago || '', nombreRol(g.registradoPor), g.monto || 0
+      g.metodoPago || '',
+      g.cuentaId ? (g.cuentaNombre || 'Cuenta') : 'Fondos del negocio',
+      nombreRol(g.registradoPor), g.monto || 0
     ]),
     [],
-    ['', '', '', '', 'TOTAL', gastos.reduce((s, g) => s + (g.monto||0), 0)]
+    ['', '', '', '', '', 'TOTAL', gastos.reduce((s, g) => s + (g.monto||0), 0)]
   ];
 
   const ws1 = XLSX.utils.aoa_to_sheet(filas);
-  ws1['!cols'] = [{ wch: 12 }, { wch: 22 }, { wch: 40 }, { wch: 15 }, { wch: 16 }, { wch: 14 }];
+  ws1['!cols'] = [{ wch: 12 }, { wch: 22 }, { wch: 36 }, { wch: 15 }, { wch: 28 }, { wch: 16 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, ws1, 'Detalle de Gastos');
 
   // === Hoja 2: Resumen por categoría ===
@@ -1449,6 +1676,26 @@ async function generarExcel(gastos, desde, hasta) {
   ]);
   ws2['!cols'] = [{ wch: 25 }, { wch: 14 }, { wch: 12 }];
   XLSX.utils.book_append_sheet(wb, ws2, 'Resumen por Categoría');
+
+  // === Hoja 3: Desglose por origen (si aplica) ===
+  const totalFondos  = gastos.filter(g => !g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
+  const totalCuentas = gastos.filter(g =>  g.cuentaId).reduce((s,g) => s+(g.monto||0), 0);
+  if (totalCuentas > 0) {
+    const porOrigen = {};
+    gastos.filter(g => g.cuentaId).forEach(g => {
+      const k = g.cuentaNombre || g.cuentaId;
+      porOrigen[k] = (porOrigen[k] || 0) + (g.monto || 0);
+    });
+    const ws3 = XLSX.utils.aoa_to_sheet([
+      ['Origen', 'Monto (USD)'],
+      ['Fondos del negocio', totalFondos],
+      ...Object.entries(porOrigen).map(([n, m]) => [n, m]),
+      [],
+      ['TOTAL', total]
+    ]);
+    ws3['!cols'] = [{ wch: 32 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws3, 'Desglose por Origen');
+  }
 
   const nombreArchivo = `gastos-hr-burger-house-${(desde || new Date().toISOString()).substring(0,7)}.xlsx`;
   XLSX.writeFile(wb, nombreArchivo);
@@ -2323,6 +2570,7 @@ async function cargarCuentas() {
       .filter(c => c.activa !== false)
       .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
     renderizarCuentas();
+    poblarFiltroOrigen();
   } catch (err) {
     console.error(err);
     mostrarToast('Error al cargar cuentas.', 'error');
@@ -2565,16 +2813,21 @@ function renderizarHistorialCuenta(movimientos, cuenta) {
     return;
   }
 
+  const TIPO_ICON = { gasto: '🧾', reverso: '↩️', corrección: '🔧' };
+
   listaEl.innerHTML = movimientos.map(m => {
     const fecha   = m.fecha?.toDate ? m.fecha.toDate() : new Date(m.fecha);
     const fechaStr = fecha.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
     const horaStr  = fecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
     const difClase = (m.diferencia || 0) >= 0 ? 'movimiento-diff-positivo' : 'movimiento-diff-negativo';
     const difSigno = (m.diferencia || 0) >= 0 ? '+' : '';
+    const icono    = TIPO_ICON[m.tipo] || '✏️';
+    const tipoLabel = m.tipo ? m.tipo.charAt(0).toUpperCase() + m.tipo.slice(1) : 'Ajuste';
 
     return `
       <div class="movimiento-item">
         <div class="movimiento-izq">
+          <div class="movimiento-tipo">${icono} ${tipoLabel}</div>
           <div class="movimiento-fecha">${fechaStr} · ${horaStr}</div>
           <div class="movimiento-saldos">${formatMonto(m.saldoAnterior)} → <strong>${formatMonto(m.saldoNuevo)}</strong></div>
           <div class="movimiento-meta">Por ${nombreRol(m.actualizadoPor)}${m.nota ? ' · ' + m.nota : ''}</div>

@@ -1420,3 +1420,56 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* Tipo de movimiento en historial */
+.movimiento-tipo {
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--texto-muted);
+  margin-bottom: 2px;
+}
+
+/* Badge de cuenta origen en lista de gastos */
+.gasto-origen-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--primario);
+  background: var(--primario-alpha);
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* Preview de saldo al seleccionar cuenta de origen */
+.cuenta-preview {
+  margin-top: 6px;
+  font-size: .82rem;
+  color: var(--texto-muted);
+  padding: 6px 10px;
+  background: var(--bg-secundario);
+  border-radius: 8px;
+  border-left: 3px solid var(--primario);
+}
+.cuenta-preview-alerta {
+  border-left-color: var(--alerta);
+  color: var(--texto);
+}
+
+/* Desglose fondos/cuentas en resumen */
+.desglose-origen {
+  margin-top: 10px;
+  font-size: .82rem;
+  color: var(--texto-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.desglose-origen-linea {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.desglose-origen-linea strong { color: var(--texto); }
