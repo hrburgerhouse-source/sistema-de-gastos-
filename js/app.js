@@ -1216,6 +1216,9 @@ function colorTextoGrafica() {
 function colorMutedGrafica() {
   return getComputedStyle(document.documentElement).getPropertyValue('--texto-muted').trim() || '#666';
 }
+function colorBordeGrafica() {
+  return getComputedStyle(document.documentElement).getPropertyValue('--borde').trim() || '#dee2e6';
+}
 
 function renderizarGraficas(gastosMes, gastos6m, ingresos6m, mes, anio) {
   // Destruir instancias anteriores
