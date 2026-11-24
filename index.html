@@ -15,9 +15,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261201">
+  <link rel="stylesheet" href="css/style.css?v=20261202">
   <!-- Aplicar tema antes del render para evitar parpadeo -->
-  <script src="js/theme.js?v=20261201"></script>
+  <script src="js/theme.js?v=20261202"></script>
 </head>
 <body>
 
@@ -272,6 +272,8 @@
           <button class="btn btn-primario" onclick="cargarResumen()">Ver resumen</button>
         </div>
 
+        <div id="arrastreBanner"></div>
+
         <div class="stats-grid" id="statsGrid">
           <!-- Se genera dinámicamente -->
         </div>
@@ -302,6 +304,12 @@
         <div id="cardTransferenciasMes" class="card hidden">
           <h3>💸 Transferencias del mes</h3>
           <div id="tablaTransferenciasMes"></div>
+        </div>
+
+        <!-- Cortes mensuales (visible para todos cuando hay datos) -->
+        <div id="cardCortesMensuales" class="card hidden">
+          <h3>📅 Cortes mensuales</h3>
+          <div id="tablaCortesMensuales"></div>
         </div>
 
         <!-- Mis compras pendientes (visible para socios) -->
@@ -995,8 +1003,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
   <!-- App scripts -->
-  <script src="js/config.js?v=20261201"></script>
-  <script src="js/app.js?v=20261201"></script>
+  <script src="js/config.js?v=20261202"></script>
+  <script src="js/app.js?v=20261202"></script>
 
 </body>
 </html>

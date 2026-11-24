@@ -109,6 +109,27 @@ service cloud.firestore {
     //   allow update: if request.auth != null;  // solo para anular (admin)
     //   allow delete: if false;                 // registro permanente
     // }
+    //
+    // ─────────────────────────────────────────────────────────────
+    // CORTES MENSUALES
+    // Colección: cortesMensuales/{YYYY-MM}
+    //   Campos: mes (number), anio (number), ingresos, gastosOperativos,
+    //           transferencias, arrastreInicial, resultado (number),
+    //           tipo ("ganancia"|"deuda"), generadoEn (timestamp),
+    //           generadoPor (string)
+    //
+    // Lógica de permisos (validada en JS):
+    //   - Se guarda automáticamente al abrir el Resumen (set, no merge).
+    //   - El ID del documento es YYYY-MM → previene duplicados.
+    //   - Todos los usuarios pueden leer la tabla de cortes.
+    //   - Solo se escribe desde la aplicación (cualquier rol autenticado).
+    //   - Nunca se borran documentos.
+    // ─────────────────────────────────────────────────────────────
+    // match /cortesMensuales/{corteId} {
+    //   allow read:   if request.auth != null;
+    //   allow write:  if request.auth != null;
+    //   allow delete: if false;
+    // }
 
   }
 }

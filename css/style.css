@@ -851,6 +851,40 @@ label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--texto
 .periodo-selector select { flex: 1; min-width: 110px; max-width: 160px; font-size: 0.88rem; padding: 8px 10px; }
 .periodo-selector .btn { padding: 9px 18px; font-size: 0.88rem; }
 
+.arrastre-banner {
+  margin: 12px 16px 0;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: .88rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.arrastre-ganancia {
+  background: rgba(39,174,96,.1);
+  border: 1.5px solid rgba(39,174,96,.35);
+  color: #1e8449;
+}
+.arrastre-deuda {
+  background: rgba(231,76,60,.08);
+  border: 1.5px solid rgba(231,76,60,.35);
+  color: #c0392b;
+}
+.arrastre-inicio {
+  background: rgba(52,152,219,.08);
+  border: 1.5px solid rgba(52,152,219,.3);
+  color: #2471a3;
+}
+.arrastre-banner-sub {
+  font-size: .78rem;
+  opacity: .8;
+  margin-left: 4px;
+}
+[data-tema="oscuro"] .arrastre-ganancia { color: #58d68d; }
+[data-tema="oscuro"] .arrastre-deuda    { color: #ec7063; }
+[data-tema="oscuro"] .arrastre-inicio   { color: #5dade2; }
+
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

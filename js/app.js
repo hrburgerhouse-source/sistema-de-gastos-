@@ -37,6 +37,8 @@ const Estado = {
   transferenciasMes: [],
   _enviarFondosGananciaDisponible: 0,
   _enviarFondosMes: null,
+  arrastreMes: null,
+  cortesHistorico: [],
   graficas: { dona: null, barras: null, linea: null, cuentaHistorial: null },
 };
 
@@ -85,6 +87,15 @@ function nombreMes(num) {
 
 function mesAnterior(mes, anio) {
   return mes === 1 ? { mes: 12, anio: anio - 1 } : { mes: mes - 1, anio };
+}
+function mesIdStr(mes, anio) {
+  return `${anio}-${String(mes).padStart(2, '0')}`;
+}
+function mesSiguiente(mes, anio) {
+  return mes === 12 ? { mes: 1, anio: anio + 1 } : { mes: mes + 1, anio };
+}
+function esMesConCorte(mes, anio) {
+  return anio > 2026 || (anio === 2026 && mes >= 11);
 }
 
 // ================================================================
@@ -210,6 +221,7 @@ async function iniciarSesion(rol) {
 
   try {
     await Promise.all([cargarCategorias(), cargarGastosMesActual(), mostrarPanelDeudas(), cargarCuentas()]);
+    autoguardarCorteMesAnterior(); // background — no await
   } catch (err) {
     console.error(err);
     mostrarToast('Error al cargar datos. Verifica tu conexión a internet.', 'error');
@@ -969,8 +981,12 @@ async function cargarResumen() {
   mostrarSkeletonResumen();
 
   try {
-    const ant = mesAnterior(mes, anio);
-    const [snapActual, snapAnterior, snapIngresos, snapTransf] = await Promise.all([
+    const ant           = mesAnterior(mes, anio);
+    const necesitaCorte = esMesConCorte(mes, anio);
+    const esPrimerCorte = (mes === 11 && anio === 2026);
+    const vacioP        = Promise.resolve({ docs: [] });
+
+    const [snapActual, snapAnterior, snapIngresos, snapTransf, snapGC, snapIC, snapTC, snapCortes] = await Promise.all([
       db.collection('gastos')
         .where('fecha', '>=', primerDiaMes(mes, anio))
         .where('fecha', '<=', ultimoDiaMes(mes, anio))
@@ -986,7 +1002,17 @@ async function cargarResumen() {
       db.collection('transferencias')
         .where('fecha', '>=', primerDiaMes(mes, anio))
         .where('fecha', '<=', ultimoDiaMes(mes, anio))
-        .get()
+        .get(),
+      (necesitaCorte && !esPrimerCorte)
+        ? db.collection('gastos').where('fecha', '>=', '2026-11-01').where('fecha', '<=', ultimoDiaMes(ant.mes, ant.anio)).get()
+        : vacioP,
+      (necesitaCorte && !esPrimerCorte)
+        ? db.collection('ingresos').where('fecha', '>=', '2026-11-01').where('fecha', '<=', ultimoDiaMes(ant.mes, ant.anio)).get()
+        : vacioP,
+      (necesitaCorte && !esPrimerCorte)
+        ? db.collection('transferencias').where('fecha', '>=', '2026-11-01').where('fecha', '<=', ultimoDiaMes(ant.mes, ant.anio)).get()
+        : vacioP,
+      necesitaCorte ? db.collection('cortesMensuales').get() : vacioP
     ]);
 
     const gastosActuales   = snapActual.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -997,6 +1023,34 @@ async function cargarResumen() {
     Estado.gastosResumenActual   = gastosActuales;
     Estado.ingresosResumenActual = ingresosActuales;
     Estado.transferenciasMes     = transferencias;
+
+    if (necesitaCorte) {
+      const gastosChain   = snapGC.docs.map(d => ({ id: d.id, ...d.data() }));
+      const ingresosChain = snapIC.docs.map(d => ({ id: d.id, ...d.data() }));
+      const transfChain   = snapTC.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const arrastreInicial = esPrimerCorte
+        ? 0
+        : computarCadenaArrastre(gastosChain, ingresosChain, transfChain, ant.mes, ant.anio);
+
+      const totalI   = ingresosActuales.reduce((s, i) => s + (i.monto || 0), 0);
+      const totalGOp = gastosActuales.filter(g => !g.cuentaId).reduce((s, g) => s + (g.monto || 0), 0);
+      const totalT   = transferencias.filter(t => !t.anulada).reduce((s, t) => s + (t.monto || 0), 0);
+      const resultadoAcumulado = +(arrastreInicial + totalI - totalGOp - totalT).toFixed(2);
+
+      Estado.arrastreMes = { arrastreInicial, resultadoAcumulado, ingresos: totalI, gastosOperativos: totalGOp, transferencias: totalT };
+
+      _guardarCorteMesSeleccionado(mes, anio, { arrastreInicial, ingresos: totalI, gastosOperativos: totalGOp, transferencias: totalT })
+        .catch(err => console.warn('No se pudo guardar el corte:', err));
+
+      Estado.cortesHistorico = snapCortes.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.id < b.id ? -1 : 1));
+    } else {
+      Estado.arrastreMes     = null;
+      Estado.cortesHistorico = [];
+    }
+
     renderizarResumen(gastosActuales, gastosAnteriores, ingresosActuales, mes, anio);
 
     if (Estado.usuario?.rol !== 'admin') {
@@ -1051,6 +1105,29 @@ function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
   const varIcono = variacion > 0 ? '▲' : variacion < 0 ? '▼' : '–';
   const varTexto = variacion !== 0 ? `${varIcono} ${Math.abs(variacion).toFixed(1)}%` : '– Sin cambio';
 
+  // Arrastre / corte mensual
+  const necesitaCorte      = esMesConCorte(mes, anio);
+  const esPrimerCorte      = (mes === 11 && anio === 2026);
+  const arrastreInicial    = Estado.arrastreMes?.arrastreInicial ?? 0;
+  const resultadoAcumulado = Estado.arrastreMes?.resultadoAcumulado ?? 0;
+  const prox               = mesSiguiente(mes, anio);
+
+  // Arrastre banner
+  const arrastreBannerEl = document.getElementById('arrastreBanner');
+  if (arrastreBannerEl) {
+    if (necesitaCorte) {
+      if (esPrimerCorte) {
+        arrastreBannerEl.innerHTML = `<div class="arrastre-banner arrastre-inicio">📅 Inicio del corte automático — ${nombreMes(11)} 2026</div>`;
+      } else {
+        const clase = arrastreInicial >= 0 ? 'arrastre-ganancia' : 'arrastre-deuda';
+        const signo = arrastreInicial >= 0 ? '+' : '';
+        arrastreBannerEl.innerHTML = `<div class="arrastre-banner ${clase}">Saldo del mes anterior: <strong>${signo}${formatMonto(arrastreInicial)}</strong><span class="arrastre-banner-sub">${arrastreInicial >= 0 ? 'ganancia' : 'deuda'} de ${nombreMes(ant.mes)} ${ant.anio}</span></div>`;
+      }
+    } else {
+      arrastreBannerEl.innerHTML = '';
+    }
+  }
+
   // Transferencias del mes
   const transfActivas       = Estado.transferenciasMes.filter(t => !t.anulada);
   const totalTransferencias = transfActivas.reduce((s, t) => s + (t.monto || 0), 0);
@@ -1076,6 +1153,12 @@ function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
     .join('');
 
   document.getElementById('statsGrid').innerHTML = `
+    ${necesitaCorte && !esPrimerCorte ? `
+    <div class="stat-card ${arrastreInicial >= 0 ? 'stat-positivo' : 'stat-negativo'}">
+      <div class="stat-label">Saldo del mes anterior</div>
+      <div class="stat-valor">${arrastreInicial >= 0 ? '+' : ''}${formatMonto(arrastreInicial)}</div>
+      <div style="font-size:.75rem;color:var(--texto-muted);margin-top:2px">${arrastreInicial >= 0 ? 'ganancia' : 'deuda'} de ${nombreMes(ant.mes)} ${ant.anio}</div>
+    </div>` : ''}
     <div class="stat-card stat-card-ingreso">
       <div class="stat-label">💰 Ingresos — ${nombreMes(mes)}</div>
       <div class="stat-valor">${formatMonto(totalIngresos)}</div>
@@ -1102,12 +1185,17 @@ function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
       <div class="stat-valor" style="color:#e74c3c">−${formatMonto(totalTransferencias)}</div>
       ${detalleTransferencias ? `<div class="desglose-origen" style="margin-top:8px">${detalleTransferencias}</div>` : ''}
     </div>` : ''}
-    ${esAdmin || totalTransferencias > 0 ? `
+    ${necesitaCorte ? `
+    <div class="stat-card ${resultadoAcumulado >= 0 ? 'stat-positivo' : 'stat-negativo'}" style="border-width:2px">
+      <div class="stat-label"><strong>${resultadoAcumulado >= 0 ? '✅' : '⚠️'} Resultado acumulado</strong></div>
+      <div class="stat-valor" style="font-size:1.6rem">${formatMonto(resultadoAcumulado)}</div>
+      <div style="font-size:.75rem;color:var(--texto-muted);margin-top:2px">${resultadoAcumulado >= 0 ? `Ganancia que pasa a ${nombreMes(prox.mes)} ${prox.anio}` : `Deuda que pasa a ${nombreMes(prox.mes)} ${prox.anio}`}</div>
+    </div>` : (esAdmin || totalTransferencias > 0 ? `
     <div class="stat-card ${gananciaDisponible >= 0 ? 'stat-positivo' : 'stat-negativo'}" style="border-width:2px">
       <div class="stat-label"><strong>✨ Ganancia disponible</strong></div>
       <div class="stat-valor" style="font-size:1.6rem">${formatMonto(gananciaDisponible)}</div>
       <div style="font-size:.75rem;color:var(--texto-muted);margin-top:2px">Ganancia neta − transferencias enviadas</div>
-    </div>` : ''}
+    </div>` : '')}
     <div class="stat-card ${varClase}">
       <div class="stat-label">Variación gastos vs ${nombreMes(ant.mes)}</div>
       <div class="stat-valor">${varTexto}</div>
@@ -1245,6 +1333,8 @@ function renderizarResumen(actuales, anteriores, ingresos, mes, anio) {
       }
     }
   }
+
+  renderizarCortesHistorico();
 }
 
 // ================================================================
@@ -1622,7 +1712,7 @@ window.exportarPDF = exportarPDF;
 async function exportarPDFResumen() {
   const mes  = parseInt(document.getElementById('resumenMes').value);
   const anio = parseInt(document.getElementById('resumenAnio').value);
-  await generarPDF(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio), null, Estado.ingresosResumenActual, Estado.transferenciasMes);
+  await generarPDF(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio), null, Estado.ingresosResumenActual, Estado.transferenciasMes, Estado.arrastreMes || null);
 }
 window.exportarPDFResumen = exportarPDFResumen;
 
@@ -1639,7 +1729,7 @@ async function exportarTodosPDF() {
 }
 window.exportarTodosPDF = exportarTodosPDF;
 
-async function generarPDF(gastos, desde, hasta, periodoLabel, ingresos, transferencias) {
+async function generarPDF(gastos, desde, hasta, periodoLabel, ingresos, transferencias, arrastreInfo) {
   if (!gastos || !gastos.length) return mostrarToast('No hay gastos para exportar.', 'advertencia');
 
   const { jsPDF } = window.jspdf;
@@ -1753,7 +1843,7 @@ async function generarPDF(gastos, desde, hasta, periodoLabel, ingresos, transfer
 
   // Resumen financiero (solo cuando se exporta desde Resumen con ingresos disponibles)
   if (ingresos) {
-    const transfActPDF  = (transferencias || []).filter(t => !t.anulada);
+    const transfActPDF   = (transferencias || []).filter(t => !t.anulada);
     const totalTransfPDF = transfActPDF.reduce((s, t) => s + (t.monto || 0), 0);
     const gananciaDispPDF = gananciaNeta - totalTransfPDF;
 
@@ -1767,10 +1857,17 @@ async function generarPDF(gastos, desde, hasta, periodoLabel, ingresos, transfer
       ['Gastos operativos (fondos del negocio)', formatMonto(totalFondosPDF)],
       ['Pagado desde cuentas (capital aparte)', formatMonto(totalCuentasPDF)]
     ];
+    if (arrastreInfo) bodyFinanciero.unshift(['Saldo del mes anterior', formatMonto(arrastreInfo.arrastreInicial)]);
     if (totalTransfPDF > 0) bodyFinanciero.push(['Enviado a cuentas (transferencias)', formatMonto(totalTransfPDF)]);
 
-    const footFinanciero = [['Ganancia neta', formatMonto(gananciaNeta)]];
-    if (totalTransfPDF > 0) footFinanciero.push(['Ganancia disponible', formatMonto(gananciaDispPDF)]);
+    const footFinanciero = arrastreInfo
+      ? [[arrastreInfo.resultadoAcumulado >= 0 ? 'Resultado acumulado (ganancia)' : 'Resultado acumulado (deuda)', formatMonto(arrastreInfo.resultadoAcumulado)]]
+      : [['Ganancia neta', formatMonto(gananciaNeta)]];
+    if (!arrastreInfo && totalTransfPDF > 0) footFinanciero.push(['Ganancia disponible', formatMonto(gananciaDispPDF)]);
+
+    const footColor = arrastreInfo
+      ? (arrastreInfo.resultadoAcumulado >= 0 ? [39, 174, 96] : [192, 57, 43])
+      : (gananciaNeta >= 0 ? [39, 174, 96] : [192, 57, 43]);
 
     doc.autoTable({
       startY: yRes + 4,
@@ -1778,7 +1875,7 @@ async function generarPDF(gastos, desde, hasta, periodoLabel, ingresos, transfer
       body: bodyFinanciero,
       foot: footFinanciero,
       headStyles: { fillColor: [50, 50, 50], textColor: 255, fontStyle: 'bold', fontSize: 9 },
-      footStyles: { fillColor: gananciaNeta >= 0 ? [39, 174, 96] : [192, 57, 43], textColor: 255, fontStyle: 'bold', fontSize: 10 },
+      footStyles: { fillColor: footColor, textColor: 255, fontStyle: 'bold', fontSize: 10 },
       styles: { fontSize: 9, cellPadding: 3 }
     });
 
@@ -1821,7 +1918,7 @@ window.exportarExcel = exportarExcel;
 async function exportarExcelResumen() {
   const mes  = parseInt(document.getElementById('resumenMes').value);
   const anio = parseInt(document.getElementById('resumenAnio').value);
-  await generarExcel(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio), Estado.ingresosResumenActual, Estado.transferenciasMes);
+  await generarExcel(Estado.gastosResumenActual, primerDiaMes(mes, anio), ultimoDiaMes(mes, anio), Estado.ingresosResumenActual, Estado.transferenciasMes, Estado.arrastreMes || null);
 }
 window.exportarExcelResumen = exportarExcelResumen;
 
@@ -1838,7 +1935,7 @@ async function exportarTodosExcel() {
 }
 window.exportarTodosExcel = exportarTodosExcel;
 
-async function generarExcel(gastos, desde, hasta, ingresos, transferencias) {
+async function generarExcel(gastos, desde, hasta, ingresos, transferencias, arrastreInfo) {
   if (!gastos || !gastos.length) return mostrarToast('No hay gastos para exportar.', 'advertencia');
 
   const wb = XLSX.utils.book_new();
@@ -1903,17 +2000,22 @@ async function generarExcel(gastos, desde, hasta, ingresos, transferencias) {
   }
 
   if (ingresos) {
-    const transfActXls  = (transferencias || []).filter(t => !t.anulada);
+    const transfActXls   = (transferencias || []).filter(t => !t.anulada);
     const totalTransfXls = transfActXls.reduce((s, t) => s + (t.monto || 0), 0);
     const gananciaDispXls = gananciaNeta - totalTransfXls;
 
     ws2rows.push([], [], ['Resumen financiero del período'], []);
+    if (arrastreInfo) ws2rows.push(['Saldo del mes anterior', arrastreInfo.arrastreInicial]);
     ws2rows.push(['Ingresos', totalIngresos]);
     ws2rows.push(['Gastos operativos (fondos del negocio)', totalFondos]);
     ws2rows.push(['Pagado desde cuentas (capital aparte)', totalCuentas]);
     if (totalTransfXls > 0) ws2rows.push(['Enviado a cuentas (transferencias)', totalTransfXls]);
-    ws2rows.push(['GANANCIA NETA', gananciaNeta]);
-    if (totalTransfXls > 0) ws2rows.push(['GANANCIA DISPONIBLE', gananciaDispXls]);
+    if (arrastreInfo) {
+      ws2rows.push([arrastreInfo.resultadoAcumulado >= 0 ? 'RESULTADO ACUMULADO (GANANCIA)' : 'RESULTADO ACUMULADO (DEUDA)', arrastreInfo.resultadoAcumulado]);
+    } else {
+      ws2rows.push(['GANANCIA NETA', gananciaNeta]);
+      if (totalTransfXls > 0) ws2rows.push(['GANANCIA DISPONIBLE', gananciaDispXls]);
+    }
 
     if (transfActXls.length) {
       const wsTransf = XLSX.utils.aoa_to_sheet([
@@ -1926,6 +2028,24 @@ async function generarExcel(gastos, desde, hasta, ingresos, transferencias) {
       ]);
       wsTransf['!cols'] = [{ wch: 12 }, { wch: 32 }, { wch: 36 }, { wch: 14 }];
       XLSX.utils.book_append_sheet(wb, wsTransf, 'Transferencias');
+    }
+
+    if (Estado.cortesHistorico && Estado.cortesHistorico.length) {
+      const wsCortes = XLSX.utils.aoa_to_sheet([
+        ['Cortes mensuales — HR Burger House'],
+        [],
+        ['Mes', 'Saldo anterior', 'Ingresos', 'Gastos op.', 'Transferencias', 'Resultado'],
+        ...Estado.cortesHistorico.map(c => [
+          `${nombreMes(c.mes)} ${c.anio}`,
+          c.arrastreInicial || 0,
+          c.ingresos || 0,
+          c.gastosOperativos || 0,
+          c.transferencias || 0,
+          c.resultado || 0
+        ])
+      ]);
+      wsCortes['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, wsCortes, 'Cortes mensuales');
     }
   }
 
@@ -3434,8 +3554,13 @@ async function abrirModalEnviarFondos(cuentaId) {
   const anio  = ahora.getFullYear();
   Estado._enviarFondosMes = { mes, anio };
 
+  const necesitaCorteModal = esMesConCorte(mes, anio);
+  const esPrimerCorteModal = (mes === 11 && anio === 2026);
+  const antModal           = mesAnterior(mes, anio);
+  const vacioP             = Promise.resolve({ docs: [] });
+
   try {
-    const [snapIngresos, snapGastos, snapTransf] = await Promise.all([
+    const [snapIngresos, snapGastos, snapTransf, snapGCm, snapICm, snapTCm] = await Promise.all([
       db.collection('ingresos')
         .where('fecha', '>=', primerDiaMes(mes, anio))
         .where('fecha', '<=', ultimoDiaMes(mes, anio)).get(),
@@ -3444,7 +3569,16 @@ async function abrirModalEnviarFondos(cuentaId) {
         .where('fecha', '<=', ultimoDiaMes(mes, anio)).get(),
       db.collection('transferencias')
         .where('fecha', '>=', primerDiaMes(mes, anio))
-        .where('fecha', '<=', ultimoDiaMes(mes, anio)).get()
+        .where('fecha', '<=', ultimoDiaMes(mes, anio)).get(),
+      (necesitaCorteModal && !esPrimerCorteModal)
+        ? db.collection('gastos').where('fecha', '>=', '2026-11-01').where('fecha', '<=', ultimoDiaMes(antModal.mes, antModal.anio)).get()
+        : vacioP,
+      (necesitaCorteModal && !esPrimerCorteModal)
+        ? db.collection('ingresos').where('fecha', '>=', '2026-11-01').where('fecha', '<=', ultimoDiaMes(antModal.mes, antModal.anio)).get()
+        : vacioP,
+      (necesitaCorteModal && !esPrimerCorteModal)
+        ? db.collection('transferencias').where('fecha', '>=', '2026-11-01').where('fecha', '<=', ultimoDiaMes(antModal.mes, antModal.anio)).get()
+        : vacioP
     ]);
 
     const totalIngresos = snapIngresos.docs.reduce((s, d) => s + (d.data().monto || 0), 0);
@@ -3456,11 +3590,22 @@ async function abrirModalEnviarFondos(cuentaId) {
       .reduce((s, d) => s + (d.data().monto || 0), 0);
 
     const gananciaNeta = totalIngresos - totalGastosFondos;
-    Estado._enviarFondosGananciaDisponible = +(gananciaNeta - totalTransferencias).toFixed(2);
+
+    if (necesitaCorteModal) {
+      const arrastreInicial = esPrimerCorteModal ? 0 : computarCadenaArrastre(
+        snapGCm.docs.map(d => ({ ...d.data() })),
+        snapICm.docs.map(d => ({ ...d.data() })),
+        snapTCm.docs.map(d => ({ ...d.data() })),
+        antModal.mes, antModal.anio
+      );
+      Estado._enviarFondosGananciaDisponible = +(arrastreInicial + gananciaNeta - totalTransferencias).toFixed(2);
+    } else {
+      Estado._enviarFondosGananciaDisponible = +(gananciaNeta - totalTransferencias).toFixed(2);
+    }
 
     refEl.innerHTML = `
       <div class="saldo-referencia" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <span>Ganancia disponible de ${nombreMes(mes)} ${anio}</span>
+        <span>${necesitaCorteModal ? 'Resultado acumulado' : 'Ganancia disponible'} de ${nombreMes(mes)} ${anio}</span>
         <strong style="${Estado._enviarFondosGananciaDisponible < 0 ? 'color:#e74c3c' : 'color:var(--ingreso,#27ae60)'}">
           ${formatMonto(Estado._enviarFondosGananciaDisponible)}
         </strong>
@@ -3621,3 +3766,118 @@ async function anularTransferencia(id) {
   ocultarSpinner();
 }
 window.anularTransferencia = anularTransferencia;
+
+// ================================================================
+// CORTE MENSUAL — ARRASTRE AUTOMÁTICO
+// ================================================================
+
+function computarCadenaArrastre(gastosData, ingresosData, transfData, hastaAntes_mes, hastaAntes_anio) {
+  const gBYM = {}, iBYM = {}, tBYM = {};
+  gastosData.forEach(g => {
+    if (g.cuentaId) return;
+    const k = (g.fecha || '').substring(0, 7);
+    gBYM[k] = (gBYM[k] || 0) + (g.monto || 0);
+  });
+  ingresosData.forEach(i => {
+    const k = (i.fecha || '').substring(0, 7);
+    iBYM[k] = (iBYM[k] || 0) + (i.monto || 0);
+  });
+  transfData.forEach(t => {
+    if (t.anulada) return;
+    const k = (t.fecha || '').substring(0, 7);
+    tBYM[k] = (tBYM[k] || 0) + (t.monto || 0);
+  });
+
+  let arrastre = 0;
+  let cur = { mes: 11, anio: 2026 };
+  while (cur.anio < hastaAntes_anio || (cur.anio === hastaAntes_anio && cur.mes <= hastaAntes_mes)) {
+    const k = mesIdStr(cur.mes, cur.anio);
+    arrastre = +(arrastre + (iBYM[k] || 0) - (gBYM[k] || 0) - (tBYM[k] || 0)).toFixed(2);
+    cur = mesSiguiente(cur.mes, cur.anio);
+  }
+  return arrastre;
+}
+
+async function _guardarCorteMesSeleccionado(mes, anio, { arrastreInicial, ingresos, gastosOperativos, transferencias }) {
+  const resultado = +(arrastreInicial + ingresos - gastosOperativos - transferencias).toFixed(2);
+  await db.collection('cortesMensuales').doc(mesIdStr(mes, anio)).set({
+    mes, anio, ingresos, gastosOperativos, transferencias,
+    arrastreInicial, resultado,
+    tipo: resultado >= 0 ? 'ganancia' : 'deuda',
+    generadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    generadoPor: Estado.usuario?.rol || 'sistema'
+  });
+}
+
+async function autoguardarCorteMesAnterior() {
+  try {
+    const ahora  = new Date();
+    const ant    = mesAnterior(ahora.getMonth() + 1, ahora.getFullYear());
+    if (!esMesConCorte(ant.mes, ant.anio)) return;
+
+    const esPrimerCorteAuto = (ant.mes === 11 && ant.anio === 2026);
+    const antAnt = mesAnterior(ant.mes, ant.anio);
+    const vacioP = Promise.resolve({ docs: [] });
+
+    const [snapG, snapI, snapT, snapGC, snapIC, snapTC] = await Promise.all([
+      db.collection('gastos').where('fecha', '>=', primerDiaMes(ant.mes, ant.anio)).where('fecha', '<=', ultimoDiaMes(ant.mes, ant.anio)).get(),
+      db.collection('ingresos').where('fecha', '>=', primerDiaMes(ant.mes, ant.anio)).where('fecha', '<=', ultimoDiaMes(ant.mes, ant.anio)).get(),
+      db.collection('transferencias').where('fecha', '>=', primerDiaMes(ant.mes, ant.anio)).where('fecha', '<=', ultimoDiaMes(ant.mes, ant.anio)).get(),
+      esPrimerCorteAuto ? vacioP : db.collection('gastos').where('fecha', '>=', '2026-11-01').where('fecha', '<=', ultimoDiaMes(antAnt.mes, antAnt.anio)).get(),
+      esPrimerCorteAuto ? vacioP : db.collection('ingresos').where('fecha', '>=', '2026-11-01').where('fecha', '<=', ultimoDiaMes(antAnt.mes, antAnt.anio)).get(),
+      esPrimerCorteAuto ? vacioP : db.collection('transferencias').where('fecha', '>=', '2026-11-01').where('fecha', '<=', ultimoDiaMes(antAnt.mes, antAnt.anio)).get()
+    ]);
+
+    const totalI   = snapI.docs.reduce((s, d) => s + (d.data().monto || 0), 0);
+    const totalGOp = snapG.docs.filter(d => !d.data().cuentaId).reduce((s, d) => s + (d.data().monto || 0), 0);
+    const totalT   = snapT.docs.filter(d => !d.data().anulada).reduce((s, d) => s + (d.data().monto || 0), 0);
+
+    const arrastreInicial = esPrimerCorteAuto ? 0 : computarCadenaArrastre(
+      snapGC.docs.map(d => ({ ...d.data() })),
+      snapIC.docs.map(d => ({ ...d.data() })),
+      snapTC.docs.map(d => ({ ...d.data() })),
+      antAnt.mes, antAnt.anio
+    );
+
+    await _guardarCorteMesSeleccionado(ant.mes, ant.anio, {
+      arrastreInicial,
+      ingresos: totalI,
+      gastosOperativos: totalGOp,
+      transferencias: totalT
+    });
+  } catch (err) {
+    console.warn('autoguardarCorteMesAnterior:', err);
+  }
+}
+
+function renderizarCortesHistorico() {
+  const card  = document.getElementById('cardCortesMensuales');
+  const tabla = document.getElementById('tablaCortesMensuales');
+  if (!card || !tabla) return;
+
+  const cortes = Estado.cortesHistorico || [];
+  if (!cortes.length) {
+    card.classList.add('hidden');
+    return;
+  }
+  card.classList.remove('hidden');
+
+  const filas = cortes.map(c => {
+    const colorRes = (c.resultado || 0) >= 0 ? 'var(--ingreso,#27ae60)' : '#e74c3c';
+    const signo    = (c.resultado || 0) >= 0 ? '+' : '';
+    return `<tr>
+      <td style="font-weight:600">${nombreMes(c.mes)} ${c.anio}</td>
+      <td style="color:var(--texto-muted)">${formatMonto(c.arrastreInicial || 0)}</td>
+      <td style="color:var(--ingreso,#27ae60)">${formatMonto(c.ingresos || 0)}</td>
+      <td>${formatMonto(c.gastosOperativos || 0)}</td>
+      <td style="color:#e74c3c">${formatMonto(c.transferencias || 0)}</td>
+      <td style="font-weight:600;color:${colorRes}">${signo}${formatMonto(c.resultado || 0)}</td>
+    </tr>`;
+  }).join('');
+
+  tabla.innerHTML = `
+    <table class="tabla-resumen">
+      <thead><tr><th>Mes</th><th>Saldo anterior</th><th>Ingresos</th><th>Gastos op.</th><th>Transferencias</th><th>Resultado</th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table>`;
+}
