@@ -2853,20 +2853,37 @@ async function abrirModalHistorialCuenta(id) {
 
   abrirModal('modalHistorialCuenta');
 
+  let movimientos = [];
   try {
+    console.log('[historial] consultando movimientos para cuenta:', id);
     const snap = await db.collection('cuentas').doc(id).collection('movimientos').get();
-    const movimientos = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    console.log('[historial] docs recibidos:', snap.size);
+    movimientos = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => {
         const fa = a.fecha?.toDate ? a.fecha.toDate() : (a.fecha ? new Date(a.fecha) : new Date(0));
         const fb = b.fecha?.toDate ? b.fecha.toDate() : (b.fecha ? new Date(b.fecha) : new Date(0));
         return fb - fa;
       })
       .slice(0, 50);
+  } catch (err) {
+    console.error('[historial] ERROR Firestore — cuentaId:', id, err);
+    document.getElementById('listaHistorialCuenta').innerHTML =
+      `<p style="color:red;text-align:center;padding:16px;font-weight:bold">
+        Error Firestore al cargar el historial.<br>
+        <code style="font-size:.8rem;word-break:break-all">${err.code || err.name || ''}: ${err.message || String(err)}</code>
+      </p>`;
+    return;
+  }
+
+  try {
     renderizarHistorialCuenta(movimientos, cuenta);
   } catch (err) {
-    console.error('historial error — cuentaId:', id, err);
+    console.error('[historial] ERROR render — cuentaId:', id, err);
     document.getElementById('listaHistorialCuenta').innerHTML =
-      `<p style="color:var(--texto-muted);text-align:center;padding:16px">Error al cargar el historial.<br><small style="font-size:.75rem;opacity:.7">${err.message || err}</small></p>`;
+      `<p style="color:red;text-align:center;padding:16px;font-weight:bold">
+        Error al renderizar el historial.<br>
+        <code style="font-size:.8rem;word-break:break-all">${err.name || ''}: ${err.message || String(err)}</code>
+      </p>`;
   }
 }
 window.abrirModalHistorialCuenta = abrirModalHistorialCuenta;
@@ -2881,18 +2898,21 @@ function cerrarModalHistorialCuenta() {
 window.cerrarModalHistorialCuenta = cerrarModalHistorialCuenta;
 
 function renderizarHistorialCuenta(movimientos, cuenta) {
-  // Destruir gráfica anterior si existe
-  if (Estado.graficas.cuentaHistorial) {
-    Estado.graficas.cuentaHistorial.destroy();
-    Estado.graficas.cuentaHistorial = null;
-  }
-
   const wrapper = document.getElementById('graficaCuentaWrapper');
   const ctx     = document.getElementById('graficaCuentaHistorial');
 
-  // Belt-and-suspenders: destroy any stale Chart.js instance on this canvas
-  const existingChart = Chart.getChart(ctx);
-  if (existingChart) existingChart.destroy();
+  // Destroy any existing chart — both tracked state and canvas registry
+  try {
+    if (Estado.graficas.cuentaHistorial) {
+      Estado.graficas.cuentaHistorial.destroy();
+      Estado.graficas.cuentaHistorial = null;
+    }
+    const existingChart = Chart.getChart ? Chart.getChart(ctx) : undefined;
+    if (existingChart) existingChart.destroy();
+  } catch(e) {
+    console.warn('[historial] chart destroy error (ignorado):', e.message);
+    Estado.graficas.cuentaHistorial = null;
+  }
 
   // Gráfica de línea solo si hay 2+ movimientos
   if (movimientos.length >= 2) {
@@ -2904,38 +2924,43 @@ function renderizarHistorialCuenta(movimientos, cuenta) {
     const data = movCrono.map(m => m.saldoNuevo || 0);
     const color = getComputedStyle(document.documentElement).getPropertyValue('--primario').trim() || '#FF6B35';
 
-    Estado.graficas.cuentaHistorial = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          label: 'Saldo',
-          data,
-          borderColor: color,
-          backgroundColor: 'rgba(255,107,53,0.08)',
-          tension: 0.3,
-          fill: true,
-          pointRadius: 4,
-          pointBackgroundColor: color
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          y: {
-            ticks: {
-              color: colorTextoGrafica(),
-              callback: v => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2 })
+    try {
+      Estado.graficas.cuentaHistorial = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Saldo',
+            data,
+            borderColor: color,
+            backgroundColor: 'rgba(255,107,53,0.08)',
+            tension: 0.3,
+            fill: true,
+            pointRadius: 4,
+            pointBackgroundColor: color
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: {
+              ticks: {
+                color: colorTextoGrafica(),
+                callback: v => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2 })
+              },
+              grid: { color: colorBordeGrafica() }
             },
-            grid: { color: colorBordeGrafica() }
-          },
-          x: { ticks: { color: colorTextoGrafica() }, grid: { display: false } }
+            x: { ticks: { color: colorTextoGrafica() }, grid: { display: false } }
+          }
         }
-      }
-    });
-    wrapper.classList.remove('hidden');
+      });
+      wrapper.classList.remove('hidden');
+    } catch(e) {
+      console.warn('[historial] chart creation error (gráfica omitida):', e.message);
+      wrapper.classList.add('hidden');
+    }
   } else {
     wrapper.classList.add('hidden');
   }
