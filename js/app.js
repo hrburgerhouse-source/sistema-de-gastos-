@@ -2818,6 +2818,7 @@ async function guardarSaldo() {
       actualizadoPor: Estado.usuario.rol
     });
     await db.collection('cuentas').doc(id).collection('movimientos').add({
+      tipo:           'ajuste',
       fecha:          ahora,
       saldoAnterior,
       saldoNuevo:     +nuevoSaldo.toFixed(2),
@@ -2853,14 +2854,19 @@ async function abrirModalHistorialCuenta(id) {
   abrirModal('modalHistorialCuenta');
 
   try {
-    const snap = await db.collection('cuentas').doc(id).collection('movimientos')
-      .orderBy('fecha', 'desc').limit(50).get();
-    const movimientos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const snap = await db.collection('cuentas').doc(id).collection('movimientos').get();
+    const movimientos = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const fa = a.fecha?.toDate ? a.fecha.toDate() : (a.fecha ? new Date(a.fecha) : new Date(0));
+        const fb = b.fecha?.toDate ? b.fecha.toDate() : (b.fecha ? new Date(b.fecha) : new Date(0));
+        return fb - fa;
+      })
+      .slice(0, 50);
     renderizarHistorialCuenta(movimientos, cuenta);
   } catch (err) {
-    console.error(err);
+    console.error('historial error — cuentaId:', id, err);
     document.getElementById('listaHistorialCuenta').innerHTML =
-      '<p style="color:var(--texto-muted);text-align:center;padding:16px">Error al cargar el historial.</p>';
+      `<p style="color:var(--texto-muted);text-align:center;padding:16px">Error al cargar el historial.<br><small style="font-size:.75rem;opacity:.7">${err.message || err}</small></p>`;
   }
 }
 window.abrirModalHistorialCuenta = abrirModalHistorialCuenta;
@@ -2883,6 +2889,10 @@ function renderizarHistorialCuenta(movimientos, cuenta) {
 
   const wrapper = document.getElementById('graficaCuentaWrapper');
   const ctx     = document.getElementById('graficaCuentaHistorial');
+
+  // Belt-and-suspenders: destroy any stale Chart.js instance on this canvas
+  const existingChart = Chart.getChart(ctx);
+  if (existingChart) existingChart.destroy();
 
   // Gráfica de línea solo si hay 2+ movimientos
   if (movimientos.length >= 2) {
@@ -2937,12 +2947,12 @@ function renderizarHistorialCuenta(movimientos, cuenta) {
     return;
   }
 
-  const TIPO_ICON = { gasto: '🧾', reverso: '↩️', corrección: '🔧' };
+  const TIPO_ICON = { gasto: '🧾', reverso: '↩️', corrección: '🔧', ajuste: '✏️' };
 
   listaEl.innerHTML = movimientos.map(m => {
-    const fecha   = m.fecha?.toDate ? m.fecha.toDate() : new Date(m.fecha);
-    const fechaStr = fecha.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
-    const horaStr  = fecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    const fechaRaw = m.fecha?.toDate ? m.fecha.toDate() : (m.fecha ? new Date(m.fecha) : null);
+    const fechaStr = fechaRaw ? fechaRaw.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+    const horaStr  = fechaRaw ? fechaRaw.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '—';
     const difClase = (m.diferencia || 0) >= 0 ? 'movimiento-diff-positivo' : 'movimiento-diff-negativo';
     const difSigno = (m.diferencia || 0) >= 0 ? '+' : '-';
     const icono    = TIPO_ICON[m.tipo] || '✏️';
